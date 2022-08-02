@@ -66,7 +66,6 @@ class DPAPI:
     def __init__(self, options):
         self.options = options
         self.dpapiSystem = {}
-        pass
 
     def getDPAPI_SYSTEM(self,secretType, secret):
         if secret.startswith("dpapi_machinekey:"):

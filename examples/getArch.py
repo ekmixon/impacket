@@ -38,7 +38,7 @@ from impacket.dcerpc.v5.epm import MSRPC_UUID_PORTMAP
 
 class TARGETARCH:
     def __init__(self, options):
-        self.__machinesList = list()
+        self.__machinesList = []
         self.__options = options
         self.NDR64Syntax = ('71710533-BEBA-4937-8319-B5DBEF9CCC36', '1.0')
 
@@ -50,11 +50,11 @@ class TARGETARCH:
             self.__machinesList.append(self.__options.target)
 
         logging.info('Gathering OS architecture for %d machines' % len(self.__machinesList))
-        logging.info('Socket connect timeout set to %s secs' % self.__options.timeout)
+        logging.info(f'Socket connect timeout set to {self.__options.timeout} secs')
 
         for machine in self.__machinesList:
             try:
-                stringBinding = r'ncacn_ip_tcp:%s[135]' % machine
+                stringBinding = f'ncacn_ip_tcp:{machine}[135]'
                 transport = DCERPCTransportFactory(stringBinding)
                 transport.set_connect_timeout(int(self.__options.timeout))
                 dce = transport.get_dce_rpc()
@@ -62,19 +62,18 @@ class TARGETARCH:
                 try:
                     dce.bind(MSRPC_UUID_PORTMAP, transfer_syntax=self.NDR64Syntax)
                 except DCERPCException as e:
-                    if str(e).find('syntaxes_not_supported') >= 0:
-                        print('%s is 32-bit' % machine)
+                    if 'syntaxes_not_supported' in str(e):
+                        print(f'{machine} is 32-bit')
                     else:
                         logging.error(str(e))
-                        pass
                 else:
-                    print('%s is 64-bit' % machine)
+                    print(f'{machine} is 64-bit')
 
                 dce.disconnect()
             except Exception as e:
                 #import traceback
                 #traceback.print_exc()
-                logging.error('%s: %s' % (machine, str(e)))
+                logging.error(f'{machine}: {str(e)}')
 
 # Process command-line arguments.
 if __name__ == '__main__':

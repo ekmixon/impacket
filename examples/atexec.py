@@ -74,7 +74,7 @@ class TSCH_EXEC:
                 import traceback
                 traceback.print_exc()
             logging.error(e)
-            if str(e).find('STATUS_OBJECT_NAME_NOT_FOUND') >=0:
+            if 'STATUS_OBJECT_NAME_NOT_FOUND' in str(e):
                 logging.info('When STATUS_OBJECT_NAME_NOT_FOUND is received, try running again. It might work')
 
     def doStuff(self, rpctransport):
@@ -113,7 +113,7 @@ class TSCH_EXEC:
         dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
         dce.bind(tsch.MSRPC_UUID_TSCHS)
         tmpName = ''.join([random.choice(string.ascii_letters) for _ in range(8)])
-        tmpFileName = tmpName + '.tmp'
+        tmpFileName = f'{tmpName}.tmp'
 
         if self.sessionId is not None:
             cmd, args = cmd_split(self.__command)
@@ -180,7 +180,9 @@ class TSCH_EXEC:
                 try:
                     tsch.hSchRpcRun(dce, '\\%s' % tmpName, flags=tsch.TASK_RUN_USE_SESSION_ID, sessionId=self.sessionId)
                 except Exception as e:
-                    if str(e).find('ERROR_FILE_NOT_FOUND') >= 0 or str(e).find('E_INVALIDARG') >= 0 :
+                    if 'ERROR_FILE_NOT_FOUND' in str(e) or 'E_INVALIDARG' in str(
+                        e
+                    ):
                         logging.info('The specified session doesn\'t exist!')
                         done = True
                     else:
@@ -201,7 +203,7 @@ class TSCH_EXEC:
             logging.error(e)
             e.get_packet().dump()
         finally:
-            if taskCreated is True:
+            if taskCreated:
                 tsch.hSchRpcDelete(dce, '\\%s' % tmpName)
 
         if self.sessionId is not None:
@@ -222,7 +224,7 @@ class TSCH_EXEC:
             except Exception as e:
                 if str(e).find('SHARING') > 0:
                     time.sleep(3)
-                elif str(e).find('STATUS_OBJECT_NAME_NOT_FOUND') >= 0:
+                elif 'STATUS_OBJECT_NAME_NOT_FOUND' in str(e):
                     if waitOnce is True:
                         # We're giving it the chance to flush the file before giving up
                         time.sleep(3)
@@ -280,9 +282,8 @@ if __name__ == '__main__':
 
     if options.codec is not None:
         CODEC = options.codec
-    else:
-        if CODEC is None:
-            CODEC = 'utf-8'
+    elif CODEC is None:
+        CODEC = 'utf-8'
 
     logging.warning("This will work ONLY on Windows >= Vista")
 

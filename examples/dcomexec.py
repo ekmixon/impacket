@@ -59,7 +59,7 @@ from impacket.examples.utils import parse_target
 from impacket.smbconnection import SMBConnection, SMB_DIALECT, SMB2_DIALECT_002, SMB2_DIALECT_21
 from impacket.krb5.keytab import Keytab
 
-OUTPUT_FILENAME = '__' + str(time.time())[:5]
+OUTPUT_FILENAME = f'__{str(time.time())[:5]}'
 CODEC = sys.stdout.encoding
 
 class DCOMEXEC:
@@ -156,7 +156,7 @@ class DCOMEXEC:
                 resp = iMMC.Invoke(resp[0], 0x409, DISPATCH_PROPERTYGET, dispParams, 0, [], [])
                 pQuit = iMMC.GetIDsOfNames(('Quit',))[0]
             else:
-                logging.fatal('Invalid object %s' % self.__dcomObject)
+                logging.fatal(f'Invalid object {self.__dcomObject}')
                 return
 
             iDocument = IDispatch(self.getInterface(iMMC, resp['pVarResult']['_varUnion']['pdispVal']['abData']))
@@ -254,14 +254,12 @@ class RemoteShell(cmd.Cmd):
             newPath = ntpath.normpath(ntpath.join(self._pwd, src_path))
             drive, tail = ntpath.splitdrive(newPath)
             filename = ntpath.basename(tail)
-            fh = open(filename,'wb')
-            logging.info("Downloading %s\\%s" % (drive, tail))
-            self.__transferClient.getFile(drive[:-1]+'$', tail, fh.write)
-            fh.close()
+            with open(filename,'wb') as fh:
+                logging.info("Downloading %s\\%s" % (drive, tail))
+                self.__transferClient.getFile(f'{drive[:-1]}$', tail, fh.write)
         except Exception as e:
             logging.error(str(e))
             os.remove(filename)
-            pass
 
     def do_lput(self, s):
         try:
@@ -274,17 +272,15 @@ class RemoteShell(cmd.Cmd):
                 dst_path = ''
 
             src_file = os.path.basename(src_path)
-            fh = open(src_path, 'rb')
-            dst_path = dst_path.replace('/','\\')
-            import ntpath
-            pathname = ntpath.join(ntpath.join(self._pwd, dst_path), src_file)
-            drive, tail = ntpath.splitdrive(pathname)
-            logging.info("Uploading %s to %s" % (src_file, pathname))
-            self.__transferClient.putFile(drive[:-1]+'$', tail, fh.read)
-            fh.close()
+            with open(src_path, 'rb') as fh:
+                dst_path = dst_path.replace('/','\\')
+                import ntpath
+                pathname = ntpath.join(ntpath.join(self._pwd, dst_path), src_file)
+                drive, tail = ntpath.splitdrive(pathname)
+                logging.info(f"Uploading {src_file} to {pathname}")
+                self.__transferClient.putFile(f'{drive[:-1]}$', tail, fh.read)
         except Exception as e:
             logging.critical(str(e))
-            pass
 
     def do_exit(self, s):
         dispParams = DISPPARAMS(None, False)
@@ -305,10 +301,9 @@ class RemoteShell(cmd.Cmd):
         return False
 
     def do_cd(self, s):
-        self.execute_remote('cd ' + s)
+        self.execute_remote(f'cd {s}')
         if len(self.__outputBuffer.strip('\r\n')) > 0:
             print(self.__outputBuffer)
-            self.__outputBuffer = ''
         else:
             if PY2:
                 self._pwd = ntpath.normpath(ntpath.join(self._pwd, s.decode(sys.stdin.encoding)))
@@ -316,10 +311,11 @@ class RemoteShell(cmd.Cmd):
                 self._pwd = ntpath.normpath(ntpath.join(self._pwd, s))
             self.execute_remote('cd ')
             self._pwd = self.__outputBuffer.strip('\r\n')
-            self.prompt = (self._pwd + '>')
+            self.prompt = f'{self._pwd}>'
             if self.__shell_type == 'powershell':
-                    self.prompt = 'PS ' + self.prompt + ' '
-            self.__outputBuffer = ''
+                self.prompt = f'PS {self.prompt} '
+
+        self.__outputBuffer = ''
 
     def default(self, line):
         # Let's try to guess if the user is trying to change drive
@@ -329,19 +325,17 @@ class RemoteShell(cmd.Cmd):
             if len(self.__outputBuffer.strip('\r\n')) > 0:
                 # Something went wrong
                 print(self.__outputBuffer)
-                self.__outputBuffer = ''
             else:
                 # Drive valid, now we should get the current path
                 self._pwd = line
                 self.execute_remote('cd ')
                 self._pwd = self.__outputBuffer.strip('\r\n')
-                self.prompt = (self._pwd + '>')
+                self.prompt = f'{self._pwd}>'
                 if self.__shell_type == 'powershell':
-                    self.prompt = 'PS ' + self.prompt + ' '
-                self.__outputBuffer = ''
-        else:
-            if line != '':
-                self.send_data(line)
+                    self.prompt = f'PS {self.prompt} '
+            self.__outputBuffer = ''
+        elif line != '':
+            self.send_data(line)
 
     def get_output(self):
         def output_callback(data):
@@ -362,11 +356,10 @@ class RemoteShell(cmd.Cmd):
                 self.__transferClient.getFile(self._share, self._output, output_callback)
                 break
             except Exception as e:
-                if str(e).find('STATUS_SHARING_VIOLATION') >=0:
+                if 'STATUS_SHARING_VIOLATION' in str(e):
                     # Output not finished, let's wait
                     time.sleep(1)
-                    pass
-                elif str(e).find('Broken') >= 0:
+                elif 'Broken' in str(e):
                     # The SMB Connection might have timed out, let's try reconnecting
                     logging.debug('Connection broken, trying to recreate it')
                     self.__transferClient.reconnect()
@@ -381,12 +374,12 @@ class RemoteShell(cmd.Cmd):
             if shell_type == 'powershell':
                 data = '$ProgressPreference="SilentlyContinue";' + data
                 data = self.__pwsh + b64encode(data.encode('utf-16le')).decode()
-            command = '/Q /c ' + data
+            command = f'/Q /c {data}'
 
         if self._noOutput is False:
             command += ' 1> ' + '\\\\127.0.0.1\\%s' % self._share + self._output + ' 2>&1'
 
-        logging.debug('Executing: %s' % command)
+        logging.debug(f'Executing: {command}')
 
         dispParams = DISPPARAMS(None, False)
         dispParams['rgdispidNamedArgs'] = NULL
@@ -450,7 +443,7 @@ class RemoteShellMMC20(RemoteShell):
             if shell_type == 'powershell':
                 data = '$ProgressPreference="SilentlyContinue";' + data
                 data = self._RemoteShell__pwsh + b64encode(data.encode('utf-16le')).decode()
-            command = '/Q /c ' + data
+            command = f'/Q /c {data}'
 
         if self._noOutput is False:
             command += ' 1> ' + '\\\\127.0.0.1\\%s' % self._share + self._output  + ' 2>&1'
@@ -539,7 +532,7 @@ def load_smbclient_auth_file(path):
         elif k=='domain':
             domain=v
         else:
-            raise AuthFileSyntaxError(path, lineno, 'Unknown option %s' % repr(k))
+            raise AuthFileSyntaxError(path, lineno, f'Unknown option {repr(k)}')
 
     return (domain, username, password)
 
@@ -599,9 +592,8 @@ if __name__ == '__main__':
 
     if options.codec is not None:
         CODEC = options.codec
-    else:
-        if CODEC is None:
-            CODEC = 'utf-8'
+    elif CODEC is None:
+        CODEC = 'utf-8'
 
     if ' '.join(options.command) == ' ' and options.nooutput is True:
         logging.error("-nooutput switch and interactive shell not supported")
@@ -630,7 +622,10 @@ if __name__ == '__main__':
     try:
         if options.A is not None:
             (domain, username, password) = load_smbclient_auth_file(options.A)
-            logging.debug('loaded smbclient auth file: domain=%s, username=%s, password=%s' % (repr(domain), repr(username), repr(password)))
+            logging.debug(
+                f'loaded smbclient auth file: domain={repr(domain)}, username={repr(username)}, password={repr(password)}'
+            )
+
 
         if domain is None:
             domain = ''

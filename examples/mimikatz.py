@@ -176,7 +176,7 @@ def main():
 
     if domain is None:
         domain = ''
-    
+
     if password == '' and username != '' and options.hashes is None and options.no_pass is False and options.aesKey is None:
         from getpass import getpass
         password = getpass("Password:")
@@ -191,7 +191,7 @@ def main():
         nthash = ''
 
     bound = False
- 
+
     try:
         if username != '':
             try:
@@ -218,7 +218,7 @@ def main():
                 dce.bind(mimilib.MSRPC_UUID_MIMIKATZ)
                 bound = True
             except Exception as e:
-                if str(e).find('ept_s_not_registered') >=0:
+                if 'ept_s_not_registered' in str(e):
                     # Let's try ncacn_ip_tcp
                     stringBinding = epm.hept_map(address, mimilib.MSRPC_UUID_MIMIKATZ, protocol = 'ncacn_ip_tcp')
                 else:
@@ -227,7 +227,7 @@ def main():
         else:
             stringBinding = epm.hept_map(address, mimilib.MSRPC_UUID_MIMIKATZ, protocol = 'ncacn_ip_tcp')
 
-        if bound is False:
+        if not bound:
             rpctransport = DCERPCTransportFactory(stringBinding)
             rpctransport.set_credentials(username, password, domain, lmhash, nthash, options.aesKey)
             dce = rpctransport.get_dce_rpc()
@@ -242,10 +242,10 @@ def main():
         shell = MimikatzShell(dce)
 
         if options.file is not None:
-            logging.info("Executing commands from %s" % options.file.name)
+            logging.info(f"Executing commands from {options.file.name}")
             for line in options.file.readlines():
                 if line[0] != '#':
-                    print("# %s" % line, end=' ')
+                    print(f"# {line}", end=' ')
                     shell.onecmd(line)
                 else:
                     print(line, end=' ')

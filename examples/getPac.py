@@ -60,7 +60,7 @@ class S4U2SELF:
         pacType = PACTYPE(adIfRelevant[0]['ad-data'].asOctets())
         buff = pacType['Buffers']
 
-        for bufferN in range(pacType['cBuffers']):
+        for _ in range(pacType['cBuffers']):
             infoBuffer = PAC_INFO_BUFFER(buff)
             data = pacType['Buffers'][infoBuffer['Offset']-8:][:infoBuffer['cbBufferSize']]
             if logging.getLogger().level == logging.DEBUG:

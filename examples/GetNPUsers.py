@@ -52,7 +52,7 @@ class GetUserNoPreAuth:
     def printTable(items, header):
         colLen = []
         for i, col in enumerate(header):
-            rowMaxLen = max([len(row[i]) for row in items])
+            rowMaxLen = max(len(row[i]) for row in items)
             colLen.append(max(rowMaxLen, len(col)))
 
         outputFormat = ' '.join(['{%d:%ds} ' % (num, width) for num, width in enumerate(colLen)])
@@ -84,9 +84,7 @@ class GetUserNoPreAuth:
 
         # Create the baseDN
         domainParts = self.__domain.split('.')
-        self.baseDN = ''
-        for i in domainParts:
-            self.baseDN += 'dc=%s,' % i
+        self.baseDN = ''.join(f'dc={i},' for i in domainParts)
         # Remove last ','
         self.baseDN = self.baseDN[:-1]
 
@@ -117,7 +115,10 @@ class GetUserNoPreAuth:
         asReq = AS_REQ()
 
         domain = self.__domain.upper()
-        serverName = Principal('krbtgt/%s' % domain, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
+        serverName = Principal(
+            f'krbtgt/{domain}', type=constants.PrincipalNameType.NT_PRINCIPAL.value
+        )
+
 
         pacRequest = KERB_PA_PAC_REQUEST()
         pacRequest['include-pac'] = requestPAC
@@ -133,10 +134,12 @@ class GetUserNoPreAuth:
 
         reqBody = seq_set(asReq, 'req-body')
 
-        opts = list()
-        opts.append(constants.KDCOptions.forwardable.value)
-        opts.append(constants.KDCOptions.renewable.value)
-        opts.append(constants.KDCOptions.proxiable.value)
+        opts = [
+            constants.KDCOptions.forwardable.value,
+            constants.KDCOptions.renewable.value,
+            constants.KDCOptions.proxiable.value,
+        ]
+
         reqBody['kdc-options'] = constants.encodeFlags(opts)
 
         seq_set(reqBody, 'sname', serverName.components_to_asn1)
@@ -161,16 +164,15 @@ class GetUserNoPreAuth:
         try:
             r = sendReceive(message, domain, self.__kdcHost)
         except KerberosError as e:
-            if e.getErrorCode() == constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP.value:
-                # RC4 not available, OK, let's ask for newer types
-                supportedCiphers = (int(constants.EncryptionTypes.aes256_cts_hmac_sha1_96.value),
-                                    int(constants.EncryptionTypes.aes128_cts_hmac_sha1_96.value),)
-                seq_set_iter(reqBody, 'etype', supportedCiphers)
-                message = encoder.encode(asReq)
-                r = sendReceive(message, domain, self.__kdcHost)
-            else:
+            if e.getErrorCode() != constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP.value:
                 raise e
 
+            # RC4 not available, OK, let's ask for newer types
+            supportedCiphers = (int(constants.EncryptionTypes.aes256_cts_hmac_sha1_96.value),
+                                int(constants.EncryptionTypes.aes128_cts_hmac_sha1_96.value),)
+            seq_set_iter(reqBody, 'etype', supportedCiphers)
+            message = encoder.encode(asReq)
+            r = sendReceive(message, domain, self.__kdcHost)
         # This should be the PREAUTH_FAILED packet or the actual TGT if the target principal has the
         # 'Do not require Kerberos preauthentication' set
         try:
@@ -184,9 +186,8 @@ class GetUserNoPreAuth:
 
         if self.__outputFormat == 'john':
             # Let's output the TGT enc-part/cipher in John format, in case somebody wants to use it.
-            return '$krb5asrep$%s@%s:%s$%s' % (clientName, domain,
-                                               hexlify(asRep['enc-part']['cipher'].asOctets()[:16]).decode(),
-                                               hexlify(asRep['enc-part']['cipher'].asOctets()[16:]).decode())
+            return f"$krb5asrep${clientName}@{domain}:{hexlify(asRep['enc-part']['cipher'].asOctets()[:16]).decode()}${hexlify(asRep['enc-part']['cipher'].asOctets()[16:]).decode()}"
+
         else:
             # Let's output the TGT enc-part/cipher in Hashcat format, in case somebody wants to use it.
             return '$krb5asrep$%d$%s@%s:%s$%s' % ( asRep['enc-part']['etype'], clientName, domain,

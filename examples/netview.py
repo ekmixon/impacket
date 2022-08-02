@@ -90,10 +90,9 @@ def checkMachines(machines, stopEvent, singlePass=False):
                 s.close()
                 machinesAliveQueue.put(machine)
             except Exception as e:
-                logging.debug('%s: not alive (%s)' % (machine, e))
-                pass
+                logging.debug(f'{machine}: not alive ({e})')
             else:
-                logging.debug('%s: alive!' % machine)
+                logging.debug(f'{machine}: alive!')
                 deadMachines.remove(machine)
             if stopEvent.is_set():
                  done = True
@@ -119,8 +118,8 @@ class USERENUM:
         self.__doKerberos = doKerberos
         self.__kdcHost = options.dc_ip
         self.__options = options
-        self.__machinesList = list()
-        self.__targets = dict()
+        self.__machinesList = []
+        self.__targets = {}
         self.__filterUsers = None
         self.__targetsThreadEvent = None
         self.__targetsThread = None
@@ -150,7 +149,7 @@ class USERENUM:
             resp = samr.hSamrEnumerateDomainsInSamServer(dce, serverHandle)
             domains = resp['Buffer']['Buffer']
 
-            logging.info("Looking up users in domain %s" % domains[0]['Name'])
+            logging.info(f"Looking up users in domain {domains[0]['Name']}")
 
             resp = samr.hSamrLookupDomainInSamServer(dce, serverHandle,domains[0]['Name'] )
 
@@ -194,13 +193,13 @@ class USERENUM:
           
     def filterUsers(self):
         if self.__options.user is not None:
-            self.__filterUsers = list()
-            self.__filterUsers.append(self.__options.user)
+            self.__filterUsers = [self.__options.user]
         elif self.__options.users is not None:
             # Grab users list from a file
-            self.__filterUsers = list()
-            for line in self.__options.users.readlines():
-                self.__filterUsers.append(line.strip(' \r\n'))
+            self.__filterUsers = [
+                line.strip(' \r\n') for line in self.__options.users.readlines()
+            ]
+
         else:
             self.__filterUsers = None
 
@@ -208,7 +207,7 @@ class USERENUM:
         self.getTargets()
         self.filterUsers()
         #self.filterGroups()
-       
+
         # Up to here we should have figured out the scope of our work
         self.__targetsThreadEvent = Event()
         if self.__options.noloop is False:
@@ -223,40 +222,36 @@ class USERENUM:
             # Do we have more machines to add?
             while machinesAliveQueue.empty() is False:
                 machine = machinesAliveQueue.get()
-                logging.debug('Adding %s to the up list' % machine)
-                self.__targets[machine] = {}
-                self.__targets[machine]['SRVS'] = None
-                self.__targets[machine]['WKST'] = None
-                self.__targets[machine]['Admin'] = True
-                self.__targets[machine]['Sessions'] = list()
-                self.__targets[machine]['LoggedIn'] = set()
-            
+                logging.debug(f'Adding {machine} to the up list')
+                self.__targets[machine] = {
+                    'SRVS': None,
+                    'WKST': None,
+                    'Admin': True,
+                    'Sessions': [],
+                    'LoggedIn': set(),
+                }
+
             for target in list(self.__targets.keys()):
                 try:
                     self.getSessions(target)
-                    self.getLoggedIn(target) 
+                    self.getLoggedIn(target)
                 except (SessionError, DCERPCException) as e:
                     # We will silently pass these ones, might be issues with Kerberos, or DCE
-                    if str(e).find('LOGON_FAILURE') >=0:
+                    if 'LOGON_FAILURE' in str(e):
                         # For some reason our credentials don't work there, 
                         # taking it out from the list.
-                        logging.error('STATUS_LOGON_FAILURE for %s, discarding' % target)
+                        logging.error(f'STATUS_LOGON_FAILURE for {target}, discarding')
                         del(self.__targets[target])
-                    elif str(e).find('INVALID_PARAMETER') >=0:
-                        del(self.__targets[target])
-                    elif str(e).find('access_denied') >=0:
-                        # Can't access the target RPC call, most probably a Unix host
-                        # taking it out from the list
+                    elif 'INVALID_PARAMETER' in str(e) or 'access_denied' in str(e):
                         del(self.__targets[target])
                     else:
                         logging.info(str(e))
-                    pass 
                 except KeyboardInterrupt:
                     raise
                 except Exception as e:
                     #import traceback
                     #traceback.print_exc()
-                    if str(e).find('timed out') >=0:
+                    if 'timed out' in str(e):
                         # Most probably this site went down. taking it out
                         # ToDo: add it back to the list of machines to check in
                         # the separate thread - DONE
@@ -265,12 +260,10 @@ class USERENUM:
                     else:
                         # These ones we will report
                         logging.error(e)
-                    pass
-
             if self.__options.noloop is True:
                 break
 
-            logging.debug('Sleeping for %s seconds' % self.__options.delay)
+            logging.debug(f'Sleeping for {self.__options.delay} seconds')
             logging.debug('Currently monitoring %d active targets' % len(self.__targets))
             sleep(int(self.__options.delay))
 
@@ -294,14 +287,13 @@ class USERENUM:
         try:
             resp = srvs.hNetrSessionEnum(dce, '\x00', NULL, 10)
         except Exception as e:
-            if str(e).find('Broken pipe') >= 0:
-                # The connection timed-out. Let's try to bring it back next round
-                self.__targets[target]['SRVS'] = None
-                self.__maxConnections += 1
-                return
-            else:
+            if 'Broken pipe' not in str(e):
                 raise
 
+            # The connection timed-out. Let's try to bring it back next round
+            self.__targets[target]['SRVS'] = None
+            self.__maxConnections += 1
+            return
         if self.__maxConnections < 0:
             # Can't keep this connection open. Closing it
             dce.disconnect()
@@ -310,7 +302,7 @@ class USERENUM:
              self.__targets[target]['SRVS'] = dce
 
         # Let's see who createad a connection since last check
-        tmpSession = list()
+        tmpSession = []
         printCRLF = False
         for session in resp['InfoStruct']['SessionInfo']['Level10']['Buffer']:
             userName = session['sesi10_username'][:-1]
@@ -318,35 +310,30 @@ class USERENUM:
             key = '%s\x01%s' % (userName, sourceIP)
             myEntry = '%s\x01%s' % (self.__username, myIP)
             tmpSession.append(key)
-            if not(key in self.__targets[target]['Sessions']):
-                # Skipping myself
-                if key != myEntry:
-                    self.__targets[target]['Sessions'].append(key)
+            if key not in self.__targets[target]['Sessions'] and key != myEntry:
+                self.__targets[target]['Sessions'].append(key)
                     # Are we filtering users?
-                    if self.__filterUsers is not None:
-                        if userName in self.__filterUsers:
-                            print("%s: user %s logged from host %s - active: %d, idle: %d" % (
-                            target, userName, sourceIP, session['sesi10_time'], session['sesi10_idle_time']))
-                            printCRLF = True
-                    else:
-                        print("%s: user %s logged from host %s - active: %d, idle: %d" % (
-                        target, userName, sourceIP, session['sesi10_time'], session['sesi10_idle_time']))
-                        printCRLF = True
-
+                if (
+                    self.__filterUsers is not None
+                    and userName in self.__filterUsers
+                    or self.__filterUsers is None
+                ):
+                    print("%s: user %s logged from host %s - active: %d, idle: %d" % (
+                    target, userName, sourceIP, session['sesi10_time'], session['sesi10_idle_time']))
+                    printCRLF = True
         # Let's see who deleted a connection since last check
         for nItem, session in enumerate(self.__targets[target]['Sessions']):
             userName, sourceIP = session.split('\x01')
             if session not in tmpSession:
                 del(self.__targets[target]['Sessions'][nItem])
                 # Are we filtering users?
-                if self.__filterUsers is not None:
-                    if userName in self.__filterUsers:
-                        print("%s: user %s logged off from host %s" % (target, userName, sourceIP))
-                        printCRLF=True
-                else:
-                    print("%s: user %s logged off from host %s" % (target, userName, sourceIP))
+                if (
+                    self.__filterUsers is not None
+                    and userName in self.__filterUsers
+                    or self.__filterUsers is None
+                ):
+                    print(f"{target}: user {userName} logged off from host {sourceIP}")
                     printCRLF=True
-                
         if printCRLF is True:
             print()
         
@@ -373,7 +360,7 @@ class USERENUM:
         try:
             resp = wkst.hNetrWkstaUserEnum(dce,1)
         except Exception as e:
-            if str(e).find('Broken pipe') >= 0:
+            if 'Broken pipe' in str(e):
                 # The connection timed-out. Let's try to bring it back next round
                 self.__targets[target]['WKST'] = None
                 self.__maxConnections += 1
@@ -402,31 +389,29 @@ class USERENUM:
             logonDomain = session['wkui1_logon_domain'][:-1]
             key = '%s\x01%s' % (userName, logonDomain)
             tmpLoggedUsers.add(key)
-            if not(key in self.__targets[target]['LoggedIn']):
+            if key not in self.__targets[target]['LoggedIn']:
                 self.__targets[target]['LoggedIn'].add(key)
                 # Are we filtering users?
-                if self.__filterUsers is not None:
-                    if userName in self.__filterUsers:
-                        print("%s: user %s\\%s logged in LOCALLY" % (target,logonDomain,userName))
-                        printCRLF=True
-                else:
+                if (
+                    self.__filterUsers is not None
+                    and userName in self.__filterUsers
+                    or self.__filterUsers is None
+                ):
                     print("%s: user %s\\%s logged in LOCALLY" % (target,logonDomain,userName))
                     printCRLF=True
-
         # Let's see who logged out since last check
         for session in self.__targets[target]['LoggedIn'].copy():
             userName, logonDomain = session.split('\x01')
             if session not in tmpLoggedUsers:
                 self.__targets[target]['LoggedIn'].remove(session)
                 # Are we filtering users?
-                if self.__filterUsers is not None:
-                    if userName in self.__filterUsers:
-                        print("%s: user %s\\%s logged off LOCALLY" % (target,logonDomain,userName))
-                        printCRLF=True
-                else:
+                if (
+                    self.__filterUsers is not None
+                    and userName in self.__filterUsers
+                    or self.__filterUsers is None
+                ):
                     print("%s: user %s\\%s logged off LOCALLY" % (target,logonDomain,userName))
                     printCRLF=True
-                
         if printCRLF is True:
             print()
 

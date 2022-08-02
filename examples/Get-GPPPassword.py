@@ -50,33 +50,32 @@ class GetGPPasswords(object):
         shares = []
         for k in range(len(resp)):
             shares.append(resp[k]['shi1_netname'][:-1])
-            print('  - %s' % resp[k]['shi1_netname'][:-1])
+            print(f"  - {resp[k]['shi1_netname'][:-1]}")
         print()
 
     def find_cpasswords(self, base_dir, extension='xml'):
-        logging.info("Searching *.%s files..." % extension)
+        logging.info(f"Searching *.{extension} files...")
         # Breadth-first search algorithm to recursively find .extension files
         files = []
-        searchdirs = [base_dir + '/']
-        while len(searchdirs) != 0:
+        searchdirs = [f'{base_dir}/']
+        while searchdirs:
             next_dirs = []
             for sdir in searchdirs:
-                logging.debug('Searching in %s ' % sdir)
+                logging.debug(f'Searching in {sdir} ')
                 try:
-                    for sharedfile in self.smb.listPath(self.share, sdir + '*', password=None):
+                    for sharedfile in self.smb.listPath(self.share, f'{sdir}*', password=None):
                         if sharedfile.get_longname() not in ['.', '..']:
                             if sharedfile.is_directory():
-                                logging.debug('Found directory %s/' % sharedfile.get_longname())
+                                logging.debug(f'Found directory {sharedfile.get_longname()}/')
                                 next_dirs.append(sdir + sharedfile.get_longname() + '/')
+                            elif sharedfile.get_longname().endswith(f'.{extension}'):
+                                logging.debug(f'Found matching file {sdir + sharedfile.get_longname()}')
+                                results = self.parse(sdir + sharedfile.get_longname())
+                                if len(results) != 0:
+                                    self.show(results)
+                                    files.append({"filename": sdir + sharedfile.get_longname(), "results": results})
                             else:
-                                if sharedfile.get_longname().endswith('.' + extension):
-                                    logging.debug('Found matching file %s' % (sdir + sharedfile.get_longname()))
-                                    results = self.parse(sdir + sharedfile.get_longname())
-                                    if len(results) != 0:
-                                        self.show(results)
-                                        files.append({"filename": sdir + sharedfile.get_longname(), "results": results})
-                                else:
-                                    logging.debug('Found file %s' % sharedfile.get_longname())
+                                logging.debug(f'Found file {sharedfile.get_longname()}')
                 except SessionError as e:
                     logging.debug(e)
             searchdirs = next_dirs
@@ -91,15 +90,20 @@ class GetGPPasswords(object):
             # function to get attribute if it exists, returns "" if empty
             read_or_empty = lambda element, attribute: (
                 element.getAttribute(attribute) if element.getAttribute(attribute) != None else "")
-            for properties in properties_list:
-                results.append({
+            results.extend(
+                {
                     'newname': read_or_empty(properties, 'newName'),
                     'changed': read_or_empty(properties.parentNode, 'changed'),
                     'cpassword': read_or_empty(properties, 'cpassword'),
-                    'password': self.decrypt_password(read_or_empty(properties, 'cpassword')),
+                    'password': self.decrypt_password(
+                        read_or_empty(properties, 'cpassword')
+                    ),
                     'username': read_or_empty(properties, 'userName'),
-                    'file': filename
-                })
+                    'file': filename,
+                }
+                for properties in properties_list
+            )
+
         except Exception as e:
             if logging.getLogger().level == logging.DEBUG:
                 traceback.print_exc()
@@ -128,7 +132,7 @@ class GetGPPasswords(object):
                 results = self.parse_xmlfile_content(filename, filecontent)
                 fh.close()
             else:
-                logging.debug("No cpassword was found in %s" % filename)
+                logging.debug(f"No cpassword was found in {filename}")
         else:
             logging.debug("Output cannot be correctly decoded, are you sure the text is readable ?")
             fh.close()
@@ -138,13 +142,13 @@ class GetGPPasswords(object):
         if len(pw_enc_b64) != 0:
             # thank you MS for publishing the key :) (https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-gppref/2c15cbf0-f086-4c74-8b70-1f2fa45dd4be)
             key = b'\x4e\x99\x06\xe8\xfc\xb6\x6c\xc9\xfa\xf4\x93\x10\x62\x0f\xfe\xe8\xf4\x96\xe8\x06\xcc\x05\x79\x90\x20' \
-                  b'\x9b\x09\xa4\x33\xb6\x6c\x1b'
+                      b'\x9b\x09\xa4\x33\xb6\x6c\x1b'
             # thank you MS for using a fixed IV :)
             iv = b'\x00' * 16
             pad = len(pw_enc_b64) % 4
             if pad == 1:
                 pw_enc_b64 = pw_enc_b64[:-1]
-            elif pad == 2 or pad == 3:
+            elif pad in [2, 3]:
                 pw_enc_b64 += '=' * (4 - pad)
             pw_enc = base64.b64decode(pw_enc_b64)
             ctx = AES.new(key, AES.MODE_CBC, iv)
@@ -266,15 +270,14 @@ def main():
     print(version.BANNER)
     args = parse_args()
     init_logger(args)
-    if args.target.upper() == "LOCAL" :
+    if args.target.upper() == "LOCAL":
         if args.xmlfile is not None:
             # Only given decrypt XML file
             if os.path.exists(args.xmlfile):
                 g = GetGPPasswords(None, None)
-                logging.debug("Opening %s XML file for reading ..." % args.xmlfile)
-                f = open(args.xmlfile,'r')
-                rawdata = ''.join(f.readlines())
-                f.close()
+                logging.debug(f"Opening {args.xmlfile} XML file for reading ...")
+                with open(args.xmlfile,'r') as f:
+                    rawdata = ''.join(f.readlines())
                 results = g.parse_xmlfile_content(args.xmlfile, rawdata)
                 g.show(results)
             else:

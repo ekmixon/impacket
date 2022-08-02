@@ -39,7 +39,7 @@ def exportTable(ese, tableName):
         return
 
     i = 1
-    print("Table: %s" % tableName)
+    print(f"Table: {tableName}")
     while True:
         try:
             record = ese.getNextRow(cursor)
@@ -103,7 +103,7 @@ def main():
         elif options.action.upper() == 'EXPORT':
             exportTable(ese, options.table)
         else:
-            raise Exception('Unknown action %s ' % options.action)
+            raise Exception(f'Unknown action {options.action} ')
     except Exception as e:
         if logging.getLogger().level == logging.DEBUG:
             import traceback

@@ -36,7 +36,7 @@ from impacket import ImpactDecoder, IP6, ICMP6, version
 print(version.BANNER)
 
 if len(sys.argv) < 3:
-    print("Use: %s <src ip> <dst ip>" % sys.argv[0])
+    print(f"Use: {sys.argv[0]} <src ip> <dst ip>")
     sys.exit(1)
 
 src = sys.argv[1]

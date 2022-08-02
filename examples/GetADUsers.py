@@ -57,9 +57,7 @@ class GetADUsers:
 
         # Create the baseDN
         domainParts = self.__domain.split('.')
-        self.baseDN = ''
-        for i in domainParts:
-            self.baseDN += 'dc=%s,' % i
+        self.baseDN = ''.join(f'dc={i},' for i in domainParts)
         # Remove last ','
         self.baseDN = self.baseDN[:-1]
 
@@ -80,7 +78,7 @@ class GetADUsers:
             s.login('', '')
         except Exception:
             if s.getServerName() == '':
-                raise Exception('Error while anonymous logging into %s' % self.__domain)
+                raise Exception(f'Error while anonymous logging into {self.__domain}')
         else:
             s.logoff()
         return s.getServerName()
@@ -92,7 +90,7 @@ class GetADUsers:
         return t
 
     def processRecord(self, item):
-        if isinstance(item, ldapasn1.SearchResultEntry) is not True:
+        if not isinstance(item, ldapasn1.SearchResultEntry):
             return
         sAMAccountName = ''
         pwdLastSet = ''
@@ -120,39 +118,39 @@ class GetADUsers:
             print((self.__outputFormat.format(*[sAMAccountName, mail, pwdLastSet, lastLogon])))
         except Exception as e:
             logging.debug("Exception", exc_info=True)
-            logging.error('Skipping item, cannot process due to error %s' % str(e))
-            pass
+            logging.error(f'Skipping item, cannot process due to error {str(e)}')
 
     def run(self):
         if self.__doKerberos:
             self.__target = self.getMachineName()
         else:
-            if self.__kdcHost is not None:
-                self.__target = self.__kdcHost
-            else:
-                self.__target = self.__domain
-
+            self.__target = self.__kdcHost if self.__kdcHost is not None else self.__domain
         # Connect to LDAP
         try:
-            ldapConnection = ldap.LDAPConnection('ldap://%s'%self.__target, self.baseDN, self.__kdcHost)
+            ldapConnection = ldap.LDAPConnection(
+                f'ldap://{self.__target}', self.baseDN, self.__kdcHost
+            )
+
             if self.__doKerberos is not True:
                 ldapConnection.login(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash)
             else:
                 ldapConnection.kerberosLogin(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash,
                                              self.__aesKey, kdcHost=self.__kdcHost)
         except ldap.LDAPSessionError as e:
-            if str(e).find('strongerAuthRequired') >= 0:
-                # We need to try SSL
-                ldapConnection = ldap.LDAPConnection('ldaps://%s' % self.__target, self.baseDN, self.__kdcHost)
-                if self.__doKerberos is not True:
-                    ldapConnection.login(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash)
-                else:
-                    ldapConnection.kerberosLogin(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash,
-                                                 self.__aesKey, kdcHost=self.__kdcHost)
-            else:
+            if 'strongerAuthRequired' not in str(e):
                 raise
 
-        logging.info('Querying %s for information about domain.' % self.__target)
+                # We need to try SSL
+            ldapConnection = ldap.LDAPConnection(
+                f'ldaps://{self.__target}', self.baseDN, self.__kdcHost
+            )
+
+            if self.__doKerberos is not True:
+                ldapConnection.login(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash)
+            else:
+                ldapConnection.kerberosLogin(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash,
+                                             self.__aesKey, kdcHost=self.__kdcHost)
+        logging.info(f'Querying {self.__target} for information about domain.')
         # Print header
         print((self.__outputFormat.format(*self.__header)))
         print(('  '.join(['-' * itemLen for itemLen in self.__colLen])))
@@ -164,12 +162,12 @@ class GetADUsers:
             searchFilter = "(&(sAMAccountName=*)(mail=*)(!(UserAccountControl:1.2.840.113556.1.4.803:=%d))" % UF_ACCOUNTDISABLE
 
         if self.__requestUser is not None:
-            searchFilter += '(sAMAccountName:=%s))' % self.__requestUser
+            searchFilter += f'(sAMAccountName:={self.__requestUser}))'
         else:
             searchFilter += ')'
 
         try:
-            logging.debug('Search Filter=%s' % searchFilter)
+            logging.debug(f'Search Filter={searchFilter}')
             sc = ldap.SimplePagedResultsControl(size=100)
             ldapConnection.search(searchFilter=searchFilter,
                                   attributes=['sAMAccountName', 'pwdLastSet', 'mail', 'lastLogon'],
@@ -243,4 +241,4 @@ if __name__ == '__main__':
         if logging.getLogger().level == logging.DEBUG:
             import traceback
             traceback.print_exc()
-        print((str(e)))
+        print(e)

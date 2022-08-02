@@ -70,7 +70,7 @@ class MiniShell(cmd.Cmd):
     def printTable(items, header):
         colLen = []
         for i, col in enumerate(header):
-            rowMaxLen = max([len(row[i]) for row in items])
+            rowMaxLen = max(len(row[i]) for row in items)
             colLen.append(max(rowMaxLen, len(col)))
 
         outputFormat = ' '.join(['{%d:%ds} ' % (num, width) for num, width in enumerate(colLen)])
@@ -107,7 +107,7 @@ class MiniShell(cmd.Cmd):
             result = r.read()
             items = json.loads(result)
         except Exception as e:
-            logging.error("ERROR: %s" % str(e))
+            logging.error(f"ERROR: {str(e)}")
         else:
             if len(items) > 0:
                 self.printTable(items, header=headers)
@@ -354,26 +354,21 @@ if __name__ == '__main__':
     from impacket.examples.ntlmrelayx.attacks import PROTOCOL_ATTACKS
 
 
-    if options.codec is not None:
-        codec = options.codec
-    else:
-        codec = sys.getdefaultencoding()
-
+    codec = sys.getdefaultencoding() if options.codec is None else options.codec
     if options.target is not None:
         logging.info("Running in relay mode to single host")
         mode = 'RELAY'
         targetSystem = TargetsProcessor(singleTarget=options.target, protocolClients=PROTOCOL_CLIENTS, randomize=options.random)
-    else:
-        if options.tf is not None:
-            #Targetfile specified
-            logging.info("Running in relay mode to hosts in targetfile")
-            targetSystem = TargetsProcessor(targetListFile=options.tf, protocolClients=PROTOCOL_CLIENTS, randomize=options.random)
-            mode = 'RELAY'
-        else:
-            logging.info("Running in reflection mode")
-            targetSystem = None
-            mode = 'REFLECTION'
+    elif options.tf is None:
+        logging.info("Running in reflection mode")
+        targetSystem = None
+        mode = 'REFLECTION'
 
+    else:
+        #Targetfile specified
+        logging.info("Running in relay mode to hosts in targetfile")
+        targetSystem = TargetsProcessor(targetListFile=options.tf, protocolClients=PROTOCOL_CLIENTS, randomize=options.random)
+        mode = 'RELAY'
     if not options.no_smb_server:
         RELAY_SERVERS.append(SMBRelayServer)
 
@@ -413,9 +408,6 @@ if __name__ == '__main__':
             sys.stdin.read()
     except KeyboardInterrupt:
         pass
-    else:
-        pass
-
     if options.socks is True:
         socksServer.shutdown()
         del socksServer

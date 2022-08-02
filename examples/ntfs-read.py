@@ -51,21 +51,19 @@ def pretty_print(x):
     return x if x in visible else '.'
 
 def hexdump(data):
-    x = str(data)
-    strLen = len(x)
-    i = 0
-    while i < strLen:
-        print("%04x  " % i, end=' ')
-        for j in range(16):
-            if i+j < strLen:
-                print("%02X" % ord(x[i+j]), end=' ')
-            else:
-                print("  ", end=' ')
-            if j%16 == 7:
-                print("", end=' ')
-        print(" ", end=' ')
-        print(''.join(pretty_print(x) for x in x[i:i+16] ))
-        i += 16
+  x = str(data)
+  strLen = len(x)
+  for i in range(0, strLen, 16):
+    print("%04x  " % i, end=' ')
+    for j in range(16):
+        if i+j < strLen:
+            print("%02X" % ord(x[i+j]), end=' ')
+        else:
+            print("  ", end=' ')
+        if j%16 == 7:
+            print("", end=' ')
+    print(" ", end=' ')
+    print(''.join(pretty_print(x) for x in x[i:i+16] ))
 
 # Reserved/fixed MFTs
 FIXED_MFTS = 16
@@ -364,10 +362,10 @@ class Attribute:
 
 class AttributeResident(Attribute):
     def __init__(self, iNode, data):
-        logging.debug("Inside AttributeResident: iNode: %s" % iNode.INodeNumber)
-        Attribute.__init__(self,iNode,data)
-        self.ResidentHeader = NTFS_ATTRIBUTE_RECORD_RESIDENT(data[len(self.AttributeHeader):])
-        self.AttrValue = data[self.ResidentHeader['ValueOffset']:][:self.ResidentHeader['ValueLen']]
+      logging.debug(f"Inside AttributeResident: iNode: {iNode.INodeNumber}")
+      Attribute.__init__(self,iNode,data)
+      self.ResidentHeader = NTFS_ATTRIBUTE_RECORD_RESIDENT(data[len(self.AttributeHeader):])
+      self.AttrValue = data[self.ResidentHeader['ValueOffset']:][:self.ResidentHeader['ValueLen']]
 
     def dump(self):
         return self.ResidentHeader.dump()
@@ -387,13 +385,13 @@ class AttributeResident(Attribute):
 
 class AttributeNonResident(Attribute):
     def __init__(self, iNode, data):
-        logging.debug("Inside AttributeNonResident: iNode: %s" % iNode.INodeNumber)
-        Attribute.__init__(self,iNode,data)
-        self.NonResidentHeader = NTFS_ATTRIBUTE_RECORD_NON_RESIDENT(data[len(self.AttributeHeader):])
-        self.AttrValue = data[self.NonResidentHeader['DataRunsOffset']:][:self.NonResidentHeader['AllocatedSize']]
-        self.DataRuns = []
-        self.ClusterSize = 0
-        self.parseDataRuns()
+      logging.debug(f"Inside AttributeNonResident: iNode: {iNode.INodeNumber}")
+      Attribute.__init__(self,iNode,data)
+      self.NonResidentHeader = NTFS_ATTRIBUTE_RECORD_NON_RESIDENT(data[len(self.AttributeHeader):])
+      self.AttrValue = data[self.NonResidentHeader['DataRunsOffset']:][:self.NonResidentHeader['AllocatedSize']]
+      self.DataRuns = []
+      self.ClusterSize = 0
+      self.parseDataRuns()
 
     def dump(self):
         return self.NonResidentHeader.dump()
@@ -405,137 +403,122 @@ class AttributeNonResident(Attribute):
         return None
 
     def parseDataRuns(self):
-        value = self.AttrValue
-        if value is not None:
-            VCN = 0
-            LCN = 0
-            LCNOffset = 0
-            while value[0:1] != b'\x00':
-                LCN += LCNOffset
-                dr = NTFS_DATA_RUN()
+      value = self.AttrValue
+      if value is not None:
+        VCN = 0
+        LCN = 0
+        LCNOffset = 0
+        while value[:1] != b'\x00':
+          LCN += LCNOffset
+          dr = NTFS_DATA_RUN()
 
-                size = struct.unpack('B',(value[0:1]))[0]
+          size = struct.unpack('B', value[:1])[0]
 
-                value = value[1:]
+          value = value[1:]
 
-                lengthBytes = size & 0x0F
-                offsetBytes = size >> 4
+          lengthBytes = size & 0x0F
+          offsetBytes = size >> 4
 
-                length = value[:lengthBytes]
-                length = struct.unpack('<Q', value[:lengthBytes]+b'\x00'*(8-len(length)))[0]
-                value = value[lengthBytes:]
+          length = value[:lengthBytes]
+          length = struct.unpack('<Q', value[:lengthBytes]+b'\x00'*(8-len(length)))[0]
+          value = value[lengthBytes:]
 
-                fillWith = b'\x00'
-                if struct.unpack('B',value[offsetBytes-1:offsetBytes])[0] & 0x80:
-                    fillWith = b'\xff'
-                LCNOffset = value[:offsetBytes]+fillWith*(8-len(value[:offsetBytes]))
-                LCNOffset = struct.unpack('<q',LCNOffset)[0]
+          fillWith = b'\x00'
+          if struct.unpack('B',value[offsetBytes-1:offsetBytes])[0] & 0x80:
+              fillWith = b'\xff'
+          LCNOffset = value[:offsetBytes]+fillWith*(8-len(value[:offsetBytes]))
+          LCNOffset = struct.unpack('<q',LCNOffset)[0]
 
-                value = value[offsetBytes:]
+          value = value[offsetBytes:]
 
-                dr['LCN'] = LCN+LCNOffset
-                dr['Clusters'] = length
-                dr['StartVCN'] = VCN
-                dr['LastVCN'] = VCN + length -1
+          dr['LCN'] = LCN+LCNOffset
+          dr['Clusters'] = length
+          dr['StartVCN'] = VCN
+          dr['LastVCN'] = VCN + length -1
 
-                VCN += length
-                self.DataRuns.append(dr)
+          VCN += length
+          self.DataRuns.append(dr)
 
-                if len(value) == 0:
-                    break
+          if len(value) == 0:
+              break
 
     def readClusters(self, clusters, lcn):
-        logging.debug("Inside ReadClusters: clusters:%d, lcn:%d" % (clusters,lcn))
-        if lcn == -1:
-            return '\x00'*clusters*self.ClusterSize
-        self.NTFSVolume.volumeFD.seek(lcn*self.ClusterSize,0)
-        buf = self.NTFSVolume.volumeFD.read(clusters*self.ClusterSize)
-        while len(buf) < clusters*self.ClusterSize:
-            buf+= self.NTFSVolume.volumeFD.read((clusters*self.ClusterSize)-len(buf))
+      logging.debug("Inside ReadClusters: clusters:%d, lcn:%d" % (clusters,lcn))
+      if lcn == -1:
+          return '\x00'*clusters*self.ClusterSize
+      self.NTFSVolume.volumeFD.seek(lcn*self.ClusterSize,0)
+      buf = self.NTFSVolume.volumeFD.read(clusters*self.ClusterSize)
+      while len(buf) < clusters*self.ClusterSize:
+          buf+= self.NTFSVolume.volumeFD.read((clusters*self.ClusterSize)-len(buf))
 
-        if len(buf) == 0:
-            return None
-
-        return buf
+      return None if len(buf) == 0 else buf
 
     def readVCN(self, vcn, numOfClusters):
-        logging.debug("Inside ReadVCN: vcn: %d, numOfClusters: %d" % (vcn,numOfClusters))
-        buf = b''
-        clustersLeft = numOfClusters
-        for dr in self.DataRuns:
-            if (vcn >= dr['StartVCN']) and (vcn <= dr['LastVCN']):
+      logging.debug("Inside ReadVCN: vcn: %d, numOfClusters: %d" % (vcn,numOfClusters))
+      buf = b''
+      clustersLeft = numOfClusters
+      for dr in self.DataRuns:
+        if (vcn >= dr['StartVCN']) and (vcn <= dr['LastVCN']):
 
-                vcnsToRead = dr['LastVCN'] - vcn + 1
+          vcnsToRead = dr['LastVCN'] - vcn + 1
 
                 # Are we requesting to read more data outside this DataRun?
-                if numOfClusters > vcnsToRead:
-                    # Yes
-                    clustersToRead = vcnsToRead
-                else:
-                    clustersToRead = numOfClusters
-
-                tmpBuf = self.readClusters(clustersToRead,dr['LCN']+(vcn-dr['StartVCN']))
-                if tmpBuf is not None:
-                    buf += tmpBuf
-                    clustersLeft -= clustersToRead
-                    vcn += clustersToRead
-                else:
-                    break
-                if clustersLeft == 0:
-                    break
-        return buf
+          clustersToRead = vcnsToRead if numOfClusters > vcnsToRead else numOfClusters
+          tmpBuf = self.readClusters(clustersToRead,dr['LCN']+(vcn-dr['StartVCN']))
+          if tmpBuf is not None:
+              buf += tmpBuf
+              clustersLeft -= clustersToRead
+              vcn += clustersToRead
+          else:
+              break
+          if clustersLeft == 0:
+              break
+      return buf
 
     def read(self,offset,length):
-        logging.debug("Inside Read: offset: %d, length: %d" %(offset,length))
+      logging.debug("Inside Read: offset: %d, length: %d" %(offset,length))
 
-        buf = b''
-        curLength = length
-        self.ClusterSize = self.NTFSVolume.BPB['BytesPerSector']*self.NTFSVolume.BPB['SectorsPerCluster']
+      buf = b''
+      curLength = length
+      self.ClusterSize = self.NTFSVolume.BPB['BytesPerSector']*self.NTFSVolume.BPB['SectorsPerCluster']
 
-        # Given the offset, let's calculate what VCN should be the first one to read
-        vcnToStart = offset // self.ClusterSize
-        #vcnOffset  = self.ClusterSize - (offset % self.ClusterSize)
+      # Given the offset, let's calculate what VCN should be the first one to read
+      vcnToStart = offset // self.ClusterSize
+      #vcnOffset  = self.ClusterSize - (offset % self.ClusterSize)
 
-        # Do we have to read partial VCNs?
-        if offset % self.ClusterSize:
-            # Read the whole VCN
-            bufTemp = self.readVCN(vcnToStart, 1)
-            if bufTemp == b'':
-                # Something went wrong
-                return None
-            buf = bufTemp[offset % self.ClusterSize:]
-            curLength -= len(buf)
-            vcnToStart += 1
+      # Do we have to read partial VCNs?
+      if offset % self.ClusterSize:
+          # Read the whole VCN
+          bufTemp = self.readVCN(vcnToStart, 1)
+          if bufTemp == b'':
+              # Something went wrong
+              return None
+          buf = bufTemp[offset % self.ClusterSize:]
+          curLength -= len(buf)
+          vcnToStart += 1
 
-        # Finished?
-        if curLength <= 0:
-            return buf[:length]
+      # Finished?
+      if curLength <= 0:
+          return buf[:length]
 
         # First partial cluster read.. now let's keep reading full clusters
         # Data left to be read is bigger than a Cluster?
-        if curLength // self.ClusterSize:
-            # Yep.. so let's read full clusters
-            bufTemp = self.readVCN(vcnToStart, curLength // self.ClusterSize)
-            if bufTemp == b'':
-                # Something went wrong
-                return None
-            if len(bufTemp) > curLength:
-                # Too much data read, taking something off
-                buf = buf + bufTemp[:curLength]
-            else:
-                buf = buf + bufTemp
-            vcnToStart += curLength // self.ClusterSize
-            curLength -= len(bufTemp)
-
-        # Is there anything else left to be read in the last cluster?
-        if curLength > 0:
-            bufTemp = self.readVCN(vcnToStart, 1)
-            buf = buf + bufTemp[:curLength]
-
-        if buf == b'':
+      if curLength // self.ClusterSize:
+        # Yep.. so let's read full clusters
+        bufTemp = self.readVCN(vcnToStart, curLength // self.ClusterSize)
+        if bufTemp == b'':
+            # Something went wrong
             return None
-        else:
-            return buf
+        buf = buf + bufTemp[:curLength] if len(bufTemp) > curLength else buf + bufTemp
+        vcnToStart += curLength // self.ClusterSize
+        curLength -= len(bufTemp)
+
+      # Is there anything else left to be read in the last cluster?
+      if curLength > 0:
+          bufTemp = self.readVCN(vcnToStart, 1)
+          buf = buf + bufTemp[:curLength]
+
+      return None if buf == b'' else buf
 
 class AttributeStandardInfo:
     def __init__(self, attribute):
@@ -678,32 +661,13 @@ class INODE:
                 logging.error('Exception when trying to display inode %d: %s' % (self.INodeNumber,str(e)))
 
     def getPrintableAttributes(self):
-        mask = ''
-        if self.FileAttributes & FILE_ATTR_I30_INDEX_PRESENT:
-            mask += 'd'
-        else:
-            mask += '-'
-        if self.FileAttributes & FILE_ATTR_HIDDEN:
-            mask += 'h'
-        else:
-            mask += '-'
-        if self.FileAttributes & FILE_ATTR_SYSTEM:
-            mask += 'S'
-        else:
-            mask += '-'
-        if self.isCompressed():
-            mask += 'C'
-        else:
-            mask += '-'
-        if self.isEncrypted():
-            mask += 'E'
-        else:
-            mask += '-'
-        if self.isSparse():
-            mask += 's'
-        else:
-            mask += '-'
-        return mask
+      mask = '' + ('d' if self.FileAttributes & FILE_ATTR_I30_INDEX_PRESENT else '-')
+      mask += 'h' if self.FileAttributes & FILE_ATTR_HIDDEN else '-'
+      mask += 'S' if self.FileAttributes & FILE_ATTR_SYSTEM else '-'
+      mask += 'C' if self.isCompressed() else '-'
+      mask += 'E' if self.isEncrypted() else '-'
+      mask += 's' if self.isSparse() else '-'
+      return mask
 
     def parseAttributes(self):
         # Parse Standard Info
@@ -739,134 +703,125 @@ class INODE:
             self.Attributes[INDEX_ROOT] = ir
 
     def searchAttribute(self, attributeType, attributeName, findNext = False):
-        logging.debug("Inside searchAttribute: type: 0x%x, name: %s" % (attributeType, attributeName))
-        record = None
+      logging.debug("Inside searchAttribute: type: 0x%x, name: %s" % (attributeType, attributeName))
+      record = None
 
-        if findNext is True:
-            data = self.AttributesLastPos
-        else:
-            data = self.AttributesRaw
+      data = self.AttributesLastPos if findNext is True else self.AttributesRaw
+      while True:
 
-        while True:
+          if len(data) <= 8:
+              record = None
+              break
 
-            if len(data) <= 8:
-                record = None
-                break
+          record = Attribute(self,data)
 
-            record = Attribute(self,data)
+          if record.getType() == END:
+              record = None
+              break
 
-            if record.getType() == END:
-                record = None
-                break
+          if record.getTotalSize() == 0:
+              record = None
+              break
 
-            if record.getTotalSize() == 0:
-                record = None
-                break
+          if record.getType() == attributeType and record.getName() == attributeName:
+              if record.isNonResident() == 1:
+                  record = AttributeNonResident(self, data)
+              else:
+                  record = AttributeResident(self, data)
 
-            if record.getType() == attributeType and record.getName() == attributeName:
-                if record.isNonResident() == 1:
-                    record = AttributeNonResident(self, data)
-                else:
-                    record = AttributeResident(self, data)
+              self.AttributesLastPos = data[record.getTotalSize():]
 
-                self.AttributesLastPos = data[record.getTotalSize():]
+              break
 
-                break
+          data = data[record.getTotalSize():]
 
-            data = data[record.getTotalSize():]
-
-        return record
+      return record
 
     def PerformFixUp(self, record, buf, numSectors):
-        # It fixes the sequence WORDS on every sector of a cluster
-        # FixUps are used by:
-        # FILE Records in the $MFT
-        # INDX Records in directories and other indexes
-        # RCRD Records in the $LogFile
-        # RSTR Records in the $LogFile
+      # It fixes the sequence WORDS on every sector of a cluster
+      # FixUps are used by:
+      # FILE Records in the $MFT
+      # INDX Records in directories and other indexes
+      # RCRD Records in the $LogFile
+      # RSTR Records in the $LogFile
 
-        logging.debug("Inside PerformFixUp..." )
-        magicNum = struct.unpack('<H',buf[record['USROffset']:][:2])[0]
-        sequenceArray = buf[record['USROffset']+2:][:record['USRSize']*2]
+      logging.debug("Inside PerformFixUp..." )
+      magicNum = struct.unpack('<H',buf[record['USROffset']:][:2])[0]
+      sequenceArray = buf[record['USROffset']+2:][:record['USRSize']*2]
 
-        dataList = list(buf)
-        index = 0
-        for i in range(0,numSectors*2, 2):
-            index += self.NTFSVolume.SectorSize-2
-            # Let's get the last two bytes of the sector
-            lastBytes = struct.unpack('<H', buf[index:][:2])[0]
-            # Is it the same as the magicNum?
-            if lastBytes != magicNum:
-                logging.error("Magic number 0x%x doesn't match with 0x%x" % (magicNum,lastBytes))
-                return None
-            # Now let's replace the original bytes
-            dataList[index]   = sequenceArray[i]
-            dataList[index+1] = sequenceArray[i+1]
-            index += 2
+      dataList = list(buf)
+      index = 0
+      for i in range(0,numSectors*2, 2):
+          index += self.NTFSVolume.SectorSize-2
+          # Let's get the last two bytes of the sector
+          lastBytes = struct.unpack('<H', buf[index:][:2])[0]
+          # Is it the same as the magicNum?
+          if lastBytes != magicNum:
+              logging.error("Magic number 0x%x doesn't match with 0x%x" % (magicNum,lastBytes))
+              return None
+          # Now let's replace the original bytes
+          dataList[index]   = sequenceArray[i]
+          dataList[index+1] = sequenceArray[i+1]
+          index += 2
 
-        if PY2:
-            return "".join(dataList)
-        else:
-            return bytes(dataList)
+      return "".join(dataList) if PY2 else bytes(dataList)
 
     def parseIndexBlocks(self, vcn):
-        IndexEntries = []
+      IndexEntries = []
         #sectors = self.NTFSVolume.IndexBlockSize / self.NTFSVolume.SectorSize
-        if INDEX_ALLOCATION in self.Attributes:
-            ia = self.Attributes[INDEX_ALLOCATION]
-            data = ia.read(vcn*self.NTFSVolume.IndexBlockSize, self.NTFSVolume.IndexBlockSize)
-            if data:
-                iaRec = NTFS_INDEX_ALLOCATION(data)
-                sectorsPerIB = self.NTFSVolume.IndexBlockSize // self.NTFSVolume.SectorSize
-                data = self.PerformFixUp(iaRec, data, sectorsPerIB)
-                if data is None:
-                    return []
-                data = data[len(iaRec)-len(NTFS_INDEX_HEADER())+iaRec['Index']['EntriesOffset']:]
-                while True:
-                    ie = IndexEntry(data)
-                    IndexEntries.append(ie)
-                    if ie.isLastNode():
-                        break
-                    data = data[ie.getSize():]
-        return IndexEntries
+      if INDEX_ALLOCATION in self.Attributes:
+        ia = self.Attributes[INDEX_ALLOCATION]
+        if data := ia.read(vcn * self.NTFSVolume.IndexBlockSize,
+                           self.NTFSVolume.IndexBlockSize):
+          iaRec = NTFS_INDEX_ALLOCATION(data)
+          sectorsPerIB = self.NTFSVolume.IndexBlockSize // self.NTFSVolume.SectorSize
+          data = self.PerformFixUp(iaRec, data, sectorsPerIB)
+          if data is None:
+              return []
+          data = data[len(iaRec)-len(NTFS_INDEX_HEADER())+iaRec['Index']['EntriesOffset']:]
+          while True:
+              ie = IndexEntry(data)
+              IndexEntries.append(ie)
+              if ie.isLastNode():
+                  break
+              data = data[ie.getSize():]
+      return IndexEntries
 
     def walkSubNodes(self, vcn):
-        logging.debug("Inside walkSubNodes: vcn %s" % vcn)
-        entries = self.parseIndexBlocks(vcn)
-        files = []
-        for entry in entries:
-            if entry.isSubNode():
-                files += self.walkSubNodes(entry.getVCN())
-            else:
-                if len(entry.getKey()) > 0 and entry.getINodeNumber() > 16:
-                    fn = NTFS_FILE_NAME_ATTR(entry.getKey())
-                    if fn['FileNameType'] != FILE_NAME_DOS:
-                        #inode = INODE(self.NTFSVolume)
-                        #inode.FileAttributes = fn['FileAttributes']
-                        #inode.FileSize = fn['DataSize']
-                        #inode.LastDataChangeTime = datetime.fromtimestamp(getUnixTime(fn['LastDataChangeTime']))
-                        #inode.INodeNumber = entry.getINodeNumber()
-                        #inode.FileName = fn['FileName'].decode('utf-16le')
-                        #inode.displayName()
-                        files.append(fn)
+      logging.debug(f"Inside walkSubNodes: vcn {vcn}")
+      entries = self.parseIndexBlocks(vcn)
+      files = []
+      for entry in entries:
+        if entry.isSubNode():
+          files += self.walkSubNodes(entry.getVCN())
+        elif len(entry.getKey()) > 0 and entry.getINodeNumber() > 16:
+          fn = NTFS_FILE_NAME_ATTR(entry.getKey())
+          if fn['FileNameType'] != FILE_NAME_DOS:
+              #inode = INODE(self.NTFSVolume)
+              #inode.FileAttributes = fn['FileAttributes']
+              #inode.FileSize = fn['DataSize']
+              #inode.LastDataChangeTime = datetime.fromtimestamp(getUnixTime(fn['LastDataChangeTime']))
+              #inode.INodeNumber = entry.getINodeNumber()
+              #inode.FileName = fn['FileName'].decode('utf-16le')
+              #inode.displayName()
+              files.append(fn)
 #                    if inode.FileAttributes & FILE_ATTR_I30_INDEX_PRESENT and entry.getINodeNumber() > 16:
 #                        inode2 = self.NTFSVolume.getINode(entry.getINodeNumber())
 #                        inode2.walk()
-        return files
+      return files
 
     def walk(self):
-        logging.debug("Inside Walk... ")
-        files = []
-        if INDEX_ROOT in self.Attributes:
-            ir = self.Attributes[INDEX_ROOT]
+      logging.debug("Inside Walk... ")
+      if INDEX_ROOT not in self.Attributes:
+        return None
+      ir = self.Attributes[INDEX_ROOT]
 
-            if ir.getType() & FILE_NAME:
-                for ie in ir.IndexEntries:
-                    if ie.isSubNode():
-                        files += self.walkSubNodes(ie.getVCN())
-                return files
-        else:
-            return None
+      if ir.getType() & FILE_NAME:
+        files = []
+        for ie in ir.IndexEntries:
+            if ie.isSubNode():
+                files += self.walkSubNodes(ie.getVCN())
+        return files
 
     def findFirstSubNode(self, vcn, toSearch):
         def getFileName(entry):
@@ -964,28 +919,28 @@ class NTFS:
             self.MFTINode = None
 
     def readBootSector(self):
-        logging.debug("Reading Boot Sector for %s" % self.__volumeName)
+      logging.debug(f"Reading Boot Sector for {self.__volumeName}")
 
-        self.volumeFD.seek(0,0)
-        data = self.volumeFD.read(512)
-        while len(data) < 512:
-            data += self.volumeFD.read(512)
+      self.volumeFD.seek(0,0)
+      data = self.volumeFD.read(512)
+      while len(data) < 512:
+          data += self.volumeFD.read(512)
 
-        self.__bootSector = NTFS_BOOT_SECTOR(data)
-        self.BPB = NTFS_BPB(self.__bootSector['BPB'])
-        self.ExtendedBPB = NTFS_EXTENDED_BPB(self.__bootSector['ExtendedBPB'])
-        self.SectorSize = self.BPB['BytesPerSector']
-        self.__MFTStart = self.BPB['BytesPerSector'] * self.BPB['SectorsPerCluster'] * self.ExtendedBPB['MFTClusterNumber']
-        if self.ExtendedBPB['ClusterPerFileRecord'] > 0:
-            self.RecordSize = self.BPB['BytesPerSector'] * self.BPB['SectorsPerCluster'] * self.ExtendedBPB['ClusterPerFileRecord']
-        else:
-            self.RecordSize = 1 << (-self.ExtendedBPB['ClusterPerFileRecord'])
-        if self.ExtendedBPB['ClusterPerIndexBuffer'] > 0:
-            self.IndexBlockSize = self.BPB['BytesPerSector'] * self.BPB['SectorsPerCluster'] * self.ExtendedBPB['ClusterPerIndexBuffer']
-        else:
-            self.IndexBlockSize = 1 << (-self.ExtendedBPB['ClusterPerIndexBuffer'])
+      self.__bootSector = NTFS_BOOT_SECTOR(data)
+      self.BPB = NTFS_BPB(self.__bootSector['BPB'])
+      self.ExtendedBPB = NTFS_EXTENDED_BPB(self.__bootSector['ExtendedBPB'])
+      self.SectorSize = self.BPB['BytesPerSector']
+      self.__MFTStart = self.BPB['BytesPerSector'] * self.BPB['SectorsPerCluster'] * self.ExtendedBPB['MFTClusterNumber']
+      if self.ExtendedBPB['ClusterPerFileRecord'] > 0:
+          self.RecordSize = self.BPB['BytesPerSector'] * self.BPB['SectorsPerCluster'] * self.ExtendedBPB['ClusterPerFileRecord']
+      else:
+          self.RecordSize = 1 << (-self.ExtendedBPB['ClusterPerFileRecord'])
+      if self.ExtendedBPB['ClusterPerIndexBuffer'] > 0:
+          self.IndexBlockSize = self.BPB['BytesPerSector'] * self.BPB['SectorsPerCluster'] * self.ExtendedBPB['ClusterPerIndexBuffer']
+      else:
+          self.IndexBlockSize = 1 << (-self.ExtendedBPB['ClusterPerIndexBuffer'])
 
-        logging.debug("MFT should start at position %d" % self.__MFTStart)
+      logging.debug("MFT should start at position %d" % self.__MFTStart)
 
     def getINode(self, iNodeNum):
         logging.debug("Trying to fetch inode %d" % iNodeNum)
@@ -1064,40 +1019,38 @@ class MiniShell(cmd.Cmd):
 """)
 
     def do_lcd(self,line):
-        if line == '':
-            print(os.getcwd())
-        else:
-            os.chdir(line)
-            print(os.getcwd())
+      if line != '':
+        os.chdir(line)
+      print(os.getcwd())
 
     def do_cd(self, line):
-        p = line.replace('/','\\')
-        oldpwd = self.pwd
-        newPath = ntpath.normpath(ntpath.join(self.pwd,p))
-        if newPath == self.pwd:
-            # Nothing changed
-            return
-        common = ntpath.commonprefix([newPath,oldpwd])
+      p = line.replace('/','\\')
+      oldpwd = self.pwd
+      newPath = ntpath.normpath(ntpath.join(self.pwd,p))
+      if newPath == self.pwd:
+          # Nothing changed
+          return
+      common = ntpath.commonprefix([newPath,oldpwd])
 
-        if common == oldpwd:
-            res = self.findPathName(ntpath.normpath(p))
-        else:
-            res = self.findPathName(newPath)
+      if common == oldpwd:
+          res = self.findPathName(ntpath.normpath(p))
+      else:
+          res = self.findPathName(newPath)
 
-        if res is None:
-            logging.error("Directory not found")
-            self.pwd = oldpwd
-            return 
-        if res.isDirectory() == 0:
-            logging.error("Not a directory!")
-            self.pwd = oldpwd
-            return
-        else:
-            self.currentINode = res
-            self.do_ls('', False)
-            self.pwd = ntpath.join(self.pwd,p)
-            self.pwd = ntpath.normpath(self.pwd)
-            self.prompt = self.pwd + '>'
+      if res is None:
+          logging.error("Directory not found")
+          self.pwd = oldpwd
+          return
+      if res.isDirectory() == 0:
+        logging.error("Not a directory!")
+        self.pwd = oldpwd
+        return
+      else:
+        self.currentINode = res
+        self.do_ls('', False)
+        self.pwd = ntpath.join(self.pwd,p)
+        self.pwd = ntpath.normpath(self.pwd)
+        self.prompt = f'{self.pwd}>'
 
     def findPathName(self, pathName):
         if pathName == '\\':
@@ -1142,24 +1095,15 @@ class MiniShell(cmd.Cmd):
         return self.complete_get(text, line, begidx, endidx)
 
     def complete_get(self, text, line, begidx, endidx, include = 1):
-        # include means
-        # 1 just files
-        # 2 just directories
-        items = []
-        if include == 1:
-            mask = 0
-        else:
-            mask = FILE_ATTR_I30_INDEX_PRESENT
-        for i in self.completion:
-            if i[1] == mask:
-                items.append(i[0])
-        if text:
-            return  [
-                item for item in items
-                if item.upper().startswith(text.upper())
-            ]
-        else:
-            return items
+      mask = 0 if include == 1 else FILE_ATTR_I30_INDEX_PRESENT
+      items = [i[0] for i in self.completion if i[1] == mask]
+      if text:
+          return  [
+              item for item in items
+              if item.upper().startswith(text.upper())
+          ]
+      else:
+          return items
 
     def do_hexdump(self,line):
         return self.do_cat(line,command = hexdump)
@@ -1190,38 +1134,37 @@ class MiniShell(cmd.Cmd):
         logging.info("%d bytes read" % stream.getDataSize())
 
     def do_get(self, line):
-        pathName = line.replace('/','\\')
-        pathName = ntpath.normpath(ntpath.join(self.pwd,pathName))
-        fh = open(ntpath.basename(pathName),"wb")
+      pathName = line.replace('/','\\')
+      pathName = ntpath.normpath(ntpath.join(self.pwd,pathName))
+      with open(ntpath.basename(pathName),"wb") as fh:
         self.do_cat(line, command = fh.write)
-        fh.close()
 
 def main():
-    print(version.BANNER)
-    # Init the example's logger theme
-    logger.init()
-    parser = argparse.ArgumentParser(add_help = True, description = "NTFS explorer (read-only)")
-    parser.add_argument('volume', action='store', help='NTFS volume to open (e.g. \\\\.\\C: or /dev/disk1s1)')
-    parser.add_argument('-extract', action='store', help='extracts pathname (e.g. \\windows\\system32\\config\\sam)')
-    parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
+  print(version.BANNER)
+  # Init the example's logger theme
+  logger.init()
+  parser = argparse.ArgumentParser(add_help = True, description = "NTFS explorer (read-only)")
+  parser.add_argument('volume', action='store', help='NTFS volume to open (e.g. \\\\.\\C: or /dev/disk1s1)')
+  parser.add_argument('-extract', action='store', help='extracts pathname (e.g. \\windows\\system32\\config\\sam)')
+  parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
 
-    if len(sys.argv)==1:
-        parser.print_help()
-        sys.exit(1)
-    options = parser.parse_args()
+  if len(sys.argv)==1:
+      parser.print_help()
+      sys.exit(1)
+  options = parser.parse_args()
 
-    if options.debug is True:
-        logging.getLogger().setLevel(logging.DEBUG)
-        # Print the Library's installation path
-        logging.debug(version.getInstallationPath())
-    else:
-        logging.getLogger().setLevel(logging.INFO)
+  if options.debug is True:
+      logging.getLogger().setLevel(logging.DEBUG)
+      # Print the Library's installation path
+      logging.debug(version.getInstallationPath())
+  else:
+      logging.getLogger().setLevel(logging.INFO)
 
-    shell = MiniShell(options.volume)
-    if options.extract is not None:
-        shell.onecmd("get %s"% options.extract)
-    else:
-        shell.cmdloop()
+  shell = MiniShell(options.volume)
+  if options.extract is not None:
+    shell.onecmd(f"get {options.extract}")
+  else:
+    shell.cmdloop()
 
 if __name__ == '__main__':
     main()

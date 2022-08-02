@@ -74,7 +74,7 @@ class Responder:
 
    def __init__(self, machine):
        self.machine = machine
-       print("Initializing %s" % self.__class__.__name__)
+       print(f"Initializing {self.__class__.__name__}")
        self.initTemplate()
        self.initFingerprint()
 
@@ -96,10 +96,11 @@ class Responder:
           # print("Flags: 0x%04x" % self.template_onion[O_TCP].get_th_flags())
 
    def initFingerprint(self):
-       if not self.signatureName:
-          self.fingerprint = None
-       else:
-          self.fingerprint = self.machine.fingerprint.get_tests()[self.signatureName].copy()
+       self.fingerprint = (
+           self.machine.fingerprint.get_tests()[self.signatureName].copy()
+           if self.signatureName
+           else None
+       )
 
    def isMine(self, in_onion):
        return False
@@ -112,11 +113,10 @@ class Responder:
 
    def process(self, in_onion):
        if not self.isMine(in_onion): return False
-       print("Got packet for %s" % self.__class__.__name__)
+       print(f"Got packet for {self.__class__.__name__}")
 
-       out_onion = self.buildAnswer(in_onion)
-
-       if out_onion: self.sendAnswer(out_onion)
+       if out_onion := self.buildAnswer(in_onion):
+           self.sendAnswer(out_onion)
        return True
 
    def getIP(self):
@@ -172,8 +172,12 @@ class IPResponder(Responder):
        return [eth, ip]
 
    def sameIPFlags(self, in_onion):
-       if not self.template_onion: return True
-       return (self.template_onion[O_IP].get_ip_off() & 0xe000) == (in_onion[O_IP].get_ip_off() & 0xe000)
+       return (
+           (self.template_onion[O_IP].get_ip_off() & 0xE000)
+           == (in_onion[O_IP].get_ip_off() & 0xE000)
+           if self.template_onion
+           else True
+       )
 
    def isMine(self, in_onion):
        if len(in_onion) < 2: return False
@@ -451,17 +455,17 @@ class NMAP2UDPResponder(ClosedUDPResponder):
        try: ipl = int(f['IPL'], 16)
        except: ipl = None
 
-       if not ipl is None:
-          data = out_onion[O_ICMP_DATA].get_packet()
-          out_onion[O_ICMP].contains(ImpactPacket.Data())
-          ip_and_icmp_len = out_onion[O_IP].get_size()
+       if ipl is not None:
+           data = out_onion[O_ICMP_DATA].get_packet()
+           out_onion[O_ICMP].contains(ImpactPacket.Data())
+           ip_and_icmp_len = out_onion[O_IP].get_size()
 
-          data = data[:ipl - ip_and_icmp_len]
+           data = data[:ipl - ip_and_icmp_len]
 
-          data += '\x00'*(ipl-len(data)-ip_and_icmp_len)
-          out_onion = out_onion[:O_ICMP_DATA]
-          out_onion.append(ImpactPacket.Data(data))
-          out_onion[O_ICMP].contains(out_onion[O_ICMP_DATA])
+           data += '\x00'*(ipl-len(data)-ip_and_icmp_len)
+           out_onion = out_onion[:O_ICMP_DATA]
+           out_onion.append(ImpactPacket.Data(data))
+           out_onion[O_ICMP].contains(out_onion[O_ICMP_DATA])
 
        return out_onion
 
@@ -553,10 +557,14 @@ class NMAP2TCPResponder(TCPResponder):
        # Two TCP flags are used in this test: ECE and CWR
        try:
            cc = f['CC']
-           if cc == 'N': ece,cwr = 0,0
-           if cc == 'Y': ece,cwr = 1,0
-           if cc == 'S': ece,cwr = 1,1
-           if cc == 'O': ece,cwr = 0,1
+           if cc == 'N':
+               ece,cwr = 0,0
+           elif cc == 'O':
+               ece,cwr = 0,1
+           elif cc == 'S':
+               ece,cwr = 1,1
+           elif cc == 'Y':
+               ece,cwr = 1,0
        except:
            ece,cwr = 0,0
 
@@ -570,7 +578,7 @@ class NMAP2TCPResponder(TCPResponder):
        try: options = f['O']
        except: options = ''
        self.setTCPOptions(out_onion, options)
-       
+
        # Test S: TCP Sequence number
        # Z: Sequence number is zero
        # A: Sequence number is the same as the ACK in the probe
@@ -679,12 +687,12 @@ class nmap2_SEQ(NMAP2TCPResponder):
 
    def initFingerprint(self):
        NMAP2TCPResponder.initFingerprint(self)
-       if not self.seqNumber: return
-       else:
-          OPS = self.machine.fingerprint.get_tests()['OPS']
-          WIN = self.machine.fingerprint.get_tests()['WIN']
-          self.fingerprint['O'] = OPS['O%d' % self.seqNumber]
-          self.fingerprint['W'] = WIN['W%d' % self.seqNumber]
+       if not self.seqNumber:
+           if not self.seqNumber: return
+       OPS = self.machine.fingerprint.get_tests()['OPS']
+       WIN = self.machine.fingerprint.get_tests()['WIN']
+       self.fingerprint['O'] = OPS['O%d' % self.seqNumber]
+       self.fingerprint['W'] = WIN['W%d' % self.seqNumber]
 
 class nmap2_ECN(NMAP2TCPResponder):
    templateClass = os_ident.nmap2_ecn_probe
@@ -781,8 +789,14 @@ class Machine:
 
    def initPcap(self):
        self.pcap = pcapy.open_live(self.interface, 65535, 1, 0)
-       try:       self.pcap.setfilter("host %s or ether host %s" % (self.ipAddress, self.macAddress))
-       except:    self.pcap.setfilter("host %s or ether host %s" % (self.ipAddress, self.macAddress), 1, 0xFFFFFF00)
+       try:
+           self.pcap.setfilter(f"host {self.ipAddress} or ether host {self.macAddress}")
+       except:
+           self.pcap.setfilter(
+               f"host {self.ipAddress} or ether host {self.macAddress}",
+               1,
+               0xFFFFFF00,
+           )
 
    def initGenericResponders(self):
        # generic responders
@@ -824,13 +838,20 @@ class Machine:
        try: TI = seq['TI']
        except: TI = 'O'
 
-       if   TI == 'Z': self.ip_ID_delta = 0
-       elif TI == 'RD': self.ip_ID_delta = 30000
-       elif TI == 'RI': self.ip_ID_delta = 1234
-       elif TI == 'BI': self.ip_ID_delta = 1024+256
-       elif TI == 'I': self.ip_ID_delta = 1
-       elif TI == 'O': self.ip_ID_delta = 123
-       else: self.ip_ID_delta = int(TI, 16)
+       if TI == 'BI':
+           self.ip_ID_delta = 1024+256
+       elif TI == 'I':
+           self.ip_ID_delta = 1
+       elif TI == 'O':
+           self.ip_ID_delta = 123
+       elif TI == 'RD':
+           self.ip_ID_delta = 30000
+       elif TI == 'RI':
+           self.ip_ID_delta = 1234
+       elif TI == 'Z':
+           if   TI == 'Z': self.ip_ID_delta = 0
+       else:
+           self.ip_ID_delta = int(TI, 16)
 
        try: ss = seq['SS']
        except: ss = 'O'
@@ -838,25 +859,32 @@ class Machine:
        self.ip_ID_ICMP_delta = None
        if ss == 'S': self.ip_ID_ICMP = None
        else:
-          self.ip_ID_ICMP = 0
-          try: II = seq['II']
-          except: II = 'O'
+           self.ip_ID_ICMP = 0
+           try: II = seq['II']
+           except: II = 'O'
 
-          if   II == 'Z': self.ip_ID_ICMP_delta = 0
-          elif II == 'RD': self.ip_ID_ICMP_delta = 30000
-          elif II == 'RI': self.ip_ID_ICMP_delta = 1234
-          elif II == 'BI': self.ip_ID_ICMP_delta = 1024+256
-          elif II == 'I': self.ip_ID_ICMP_delta = 1
-          elif II == 'O': self.ip_ID_ICMP_delta = 123
-          else: self.ip_ID_ICMP_delta = int(II, 16)
+           if II == 'BI':
+               self.ip_ID_ICMP_delta = 1024+256
+           elif II == 'I':
+               self.ip_ID_ICMP_delta = 1
+           elif II == 'O':
+               self.ip_ID_ICMP_delta = 123
+           elif II == 'RD':
+               self.ip_ID_ICMP_delta = 30000
+           elif II == 'RI':
+               self.ip_ID_ICMP_delta = 1234
+           elif II == 'Z':
+               if   II == 'Z': self.ip_ID_ICMP_delta = 0
+           else:
+               self.ip_ID_ICMP_delta = int(II, 16)
 
        # generate a few, so we don't start with 0 when we don't have to
-       for i in range(10):
+       for _ in range(10):
            self.getIPID()
            self.getIPID_ICMP()
 
        print("IP ID Delta: %d" % self.ip_ID_delta)
-       print("IP ID ICMP Delta: %s" % self.ip_ID_ICMP_delta)
+       print(f"IP ID ICMP Delta: {self.ip_ID_ICMP_delta}")
 
    def initTCPISNGenerator(self):
        # tcp_ISN and tcp_ISN_delta for TCP Initial sequence numbers
@@ -891,7 +919,8 @@ class Machine:
        self.tcp_ISN_delta  = 2**(isr/8.0) * self.AssumedTimeIntervalPerPacket
 
        # generate a few, so we don't start with 0 when we don't have to
-       for i in range(10): self.getTCPSequence()
+       for _ in range(10):
+           self.getTCPSequence()
 
        print("TCP ISN Delta: %f" % self.tcp_ISN_delta)
        print("TCP ISN Standard Deviation: %f" % self.tcp_ISN_stdDev)
@@ -903,12 +932,13 @@ class Machine:
        try: ts = self.fingerprint.get_tests()['SEQ']['TS']
        except: ts = 'U'
 
-       if ts == 'U' or ts == 'Z': self.tcp_TS_delta = 0
+       if ts in {'U', 'Z'}: self.tcp_TS_delta = 0
        else:
            self.tcp_TS_delta = (2**int(ts, 16)) * self.AssumedTimeIntervalPerPacket
 
        # generate a few, so we don't start with 0 when we don't have to
-       for i in range(10): self.getTCPTimeStamp()
+       for _ in range(10):
+           self.getTCPTimeStamp()
 
        print("TCP TS Delta: %f" % self.tcp_TS_delta)
 
@@ -971,31 +1001,31 @@ class Machine:
 
 
 def main():
-   def initResponders(machine):
-       # cmd responder
-       # machine.addResponder(UDPCommandResponder(machine).set_port(UDP_CMD_PORT))
+    def initResponders(machine):
+        # cmd responder
+        # machine.addResponder(UDPCommandResponder(machine).set_port(UDP_CMD_PORT))
 
-       # nmap2 specific responders
-       machine.addResponder(nmap2_SEQ1(machine))
-       machine.addResponder(nmap2_SEQ2(machine))
-       machine.addResponder(nmap2_SEQ3(machine))
-       machine.addResponder(nmap2_SEQ4(machine))
-       machine.addResponder(nmap2_SEQ5(machine))
-       machine.addResponder(nmap2_SEQ6(machine))
-       machine.addResponder(nmap2_ECN(machine))
-       machine.addResponder(nmap2_T2(machine))
-       machine.addResponder(nmap2_T3(machine))
-       machine.addResponder(nmap2_T4(machine))
-       machine.addResponder(nmap2_T5(machine))
-       machine.addResponder(nmap2_T6(machine))
-       machine.addResponder(nmap2_T7(machine))
-       machine.addResponder(nmap2_ICMP_1(machine))
-       machine.addResponder(nmap2_ICMP_2(machine))
-       machine.addResponder(NMAP2UDPResponder(machine))
+        # nmap2 specific responders
+        machine.addResponder(nmap2_SEQ1(machine))
+        machine.addResponder(nmap2_SEQ2(machine))
+        machine.addResponder(nmap2_SEQ3(machine))
+        machine.addResponder(nmap2_SEQ4(machine))
+        machine.addResponder(nmap2_SEQ5(machine))
+        machine.addResponder(nmap2_SEQ6(machine))
+        machine.addResponder(nmap2_ECN(machine))
+        machine.addResponder(nmap2_T2(machine))
+        machine.addResponder(nmap2_T3(machine))
+        machine.addResponder(nmap2_T4(machine))
+        machine.addResponder(nmap2_T5(machine))
+        machine.addResponder(nmap2_T6(machine))
+        machine.addResponder(nmap2_T7(machine))
+        machine.addResponder(nmap2_ICMP_1(machine))
+        machine.addResponder(nmap2_ICMP_2(machine))
+        machine.addResponder(NMAP2UDPResponder(machine))
 
-   from sys import argv, exit
-   def usage():
-       print("""
+    from sys import argv, exit
+    def usage():
+        print("""
        if arg == '-h': usage()
        if arg == '--help': usage()
        if arg == '-f': Fingerprint = value
@@ -1008,34 +1038,34 @@ def main():
        arg = argv[i]
        value = argv[i+1]
        """)
-       exit()
+        exit()
 
-   global Fingerprint, IFACE, MAC, IP, nmapOSDB
-   for i, arg in enumerate(argv):
-       try: value = argv[i+1]
-       except: value = None
-       if arg == '-h': usage()
-       if arg == '--help': usage()
-       if arg == '-f': Fingerprint = value
-       if arg == '-p': IP = value
-       if arg == '-m': MAC = value
-       if arg == '-i': IFACE = value
-       if arg == '-d': nmapOSDB = value
+    global Fingerprint, IFACE, MAC, IP, nmapOSDB
+    for i, arg in enumerate(argv):
+        try: value = argv[i+1]
+        except: value = None
+        if arg == '-h': usage()
+        if arg == '--help': usage()
+        if arg == '-f': Fingerprint = value
+        if arg == '-p': IP = value
+        if arg == '-m': MAC = value
+        if arg == '-i': IFACE = value
+        if arg == '-d': nmapOSDB = value
 
-   print("Emulating: %r" % Fingerprint)
-   print("at %s / %s / %s" % (IFACE, MAC, IP))
-   machine = Machine(
-       Fingerprint,
-       IFACE,
-       IP,
-       MAC,
-       OPEN_TCP_PORTS,
-       OPEN_UDP_PORTS,
-       nmapOSDB=nmapOSDB)
+    print("Emulating: %r" % Fingerprint)
+    print(f"at {IFACE} / {MAC} / {IP}")
+    machine = Machine(
+        Fingerprint,
+        IFACE,
+        IP,
+        MAC,
+        OPEN_TCP_PORTS,
+        OPEN_UDP_PORTS,
+        nmapOSDB=nmapOSDB)
 
-   initResponders(machine)
-   machine.initGenericResponders()
-   machine.run()
+    initResponders(machine)
+    machine.initGenericResponders()
+    machine.run()
 
 if __name__ == '__main__':
    # Init the example's logger theme

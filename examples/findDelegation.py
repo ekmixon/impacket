@@ -40,7 +40,7 @@ class FindDelegation:
     def printTable(items, header):
         colLen = []
         for i, col in enumerate(header):
-            rowMaxLen = max([len(row[i]) for row in items])
+            rowMaxLen = max(len(row[i]) for row in items)
             colLen.append(max(rowMaxLen, len(col)))
 
         outputFormat = ' '.join(['{%d:%ds} ' % (num, width) for num, width in enumerate(colLen)])
@@ -68,9 +68,7 @@ class FindDelegation:
 
         # Create the baseDN
         domainParts = self.__targetDomain.split('.')
-        self.baseDN = ''
-        for i in domainParts:
-            self.baseDN += 'dc=%s,' % i
+        self.baseDN = ''.join(f'dc={i},' for i in domainParts)
         # Remove last ','
         self.baseDN = self.baseDN[:-1]
         # We can't set the KDC to a custom IP when requesting things cross-domain
@@ -97,7 +95,7 @@ class FindDelegation:
                 # We don't care about exceptions here as we already have the required
                 # information. This also works around the current SMB3 bug
                 pass
-        return "%s.%s" % (s.getServerName(), s.getServerDNSDomainName())
+        return f"{s.getServerName()}.{s.getServerDNSDomainName()}"
     
 
     def run(self):

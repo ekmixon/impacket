@@ -83,11 +83,11 @@ class GETST:
             self.__lmhash, self.__nthash = options.hashes.split(':')
 
     def saveTicket(self, ticket, sessionKey):
-        logging.info('Saving ticket in %s' % (self.__saveFileName + '.ccache'))
+        logging.info(f'Saving ticket in {self.__saveFileName}.ccache')
         ccache = CCache()
 
         ccache.fromTGS(ticket, sessionKey, sessionKey)
-        ccache.saveFile(self.__saveFileName + '.ccache')
+        ccache.saveFile(f'{self.__saveFileName}.ccache')
 
     def doS4U2ProxyWithAdditionalTicket(self, tgt, cipher, oldSessionKey, sessionKey, nthash, aesKey, kdcHost, additional_ticket_path):
         if not os.path.isfile(additional_ticket_path):

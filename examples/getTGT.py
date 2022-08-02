@@ -46,12 +46,12 @@ class GETTGT:
             self.__lmhash, self.__nthash = options.hashes.split(':')
 
     def saveTicket(self, ticket, sessionKey):
-        logging.info('Saving ticket in %s' % (self.__user + '.ccache'))
+        logging.info(f'Saving ticket in {self.__user}.ccache')
         from impacket.krb5.ccache import CCache
         ccache = CCache()
 
         ccache.fromTGT(ticket, sessionKey, sessionKey)
-        ccache.saveFile(self.__user + '.ccache')
+        ccache.saveFile(f'{self.__user}.ccache')
 
     def run(self):
         userName = Principal(self.__user, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
@@ -120,4 +120,4 @@ if __name__ == '__main__':
         if logging.getLogger().level == logging.DEBUG:
             import traceback
             traceback.print_exc()
-        print(str(e))
+        print(e)

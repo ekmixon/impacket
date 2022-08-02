@@ -114,18 +114,15 @@ class InterceptConn(asyncore.dispatcher):
         if not n:
             return ''
         try:
-            data = self.socket.recv(n)
-            if not data:
-                self.handle_eof()
-                return ''
-            else:
+            if data := self.socket.recv(n):
                 return data
+            self.handle_eof()
+            return ''
         except socket.error as why:
-            if why.args[0] in asyncore._DISCONNECTED:
-                self.handle_close()
-                return ''
-            else:
+            if why.args[0] not in asyncore._DISCONNECTED:
                 raise
+            self.handle_close()
+            return ''
 
     def forward_data(self, data):
         self.peer.buffer.extend(data)
@@ -138,18 +135,19 @@ class InterceptConn(asyncore.dispatcher):
         return min(MAX_READ_SIZE, space)
 
     def readable(self):
-        if not self.connected:
-            return True
-        return (not self.eof_received) and (self.max_read_size() != 0)
+        return (
+            (not self.eof_received) and (self.max_read_size() != 0)
+            if self.connected
+            else True
+        )
 
     def handle_read(self):
-        data_read = self.recv(self.max_read_size())
-        if data_read:
-            print (str(self.fileno()) + ': recieved ' + str(len(data_read)) + ' bytes')
+        if data_read := self.recv(self.max_read_size()):
+            print(f'{str(self.fileno())}: recieved {len(data_read)} bytes')
             self.forward_data(data_read)
 
     def handle_eof(self):
-        print (str(self.fileno()) +  ': received eof')
+        print(f'{str(self.fileno())}: received eof')
         self.eof_received = True
 
     def need_to_send_eof(self):
@@ -158,30 +156,35 @@ class InterceptConn(asyncore.dispatcher):
         return self.buffer_empty() and self.peer.eof_received
 
     def writable(self):
-        if not self.connected:
-            return True
-        return not self.buffer_empty() or self.need_to_send_eof()
+        return (
+            not self.buffer_empty() or self.need_to_send_eof()
+            if self.connected
+            else True
+        )
 
     def handle_write(self):
         if not self.buffer_empty():
             sent = self.send(self.buffer)
-            print (str(self.fileno()) +  ': sent ' + str(sent) + ' bytes')
+            print(f'{str(self.fileno())}: sent {str(sent)} bytes')
             if sent:
                 del self.buffer[:sent]
         if self.need_to_send_eof():
             self.shutdown(socket.SHUT_WR)
             self.eof_sent = True
-            print (str(self.fileno()) +  ': sent eof')
+            print(f'{str(self.fileno())}: sent eof')
             if self.peer.eof_sent:
                 self.handle_close()
 
     def handle_close(self):
-        print ('Closing pair: [' + str(self.fileno()) +  ',' + str(self.peer.fileno()) + ']')
+        print(f'Closing pair: [{str(self.fileno())},{str(self.peer.fileno())}]')
         self.peer.close()
         self.close()
 
 
 def InterceptKRB5Tcp(process_record_func, arg):
+
+
+
     class _InterceptKRB5Tcp(InterceptConn):
         def __init__(self, conn=None):
             InterceptConn.__init__(self, conn)
@@ -190,25 +193,24 @@ def InterceptKRB5Tcp(process_record_func, arg):
         def forward_data(self, data):
             self.proto_buffer.extend(data)
 
-            while len(self.proto_buffer):
-                if len(self.proto_buffer) < 4:
-                    break
-
+            while len(self.proto_buffer) and len(self.proto_buffer) >= 4:
                 header = ''.join(reversed(str(self.proto_buffer[:4])))
                 rec_len = struct.unpack('<L', header)[0]
-                print ('len of record: ' + str(rec_len))
+                print(f'len of record: {str(rec_len)}')
 
                 if len(self.proto_buffer) < 4 + rec_len:
                     break
 
-                msg = process_record_func(bytes(self.proto_buffer[4:4+rec_len]), arg)
-                if not msg:
-                    InterceptConn.forward_data(self, self.proto_buffer[:4+rec_len])
-                else:
+                if msg := process_record_func(
+                    bytes(self.proto_buffer[4 : 4 + rec_len]), arg
+                ):
                     header = struct.pack('<L', len(msg))
                     InterceptConn.forward_data(self, ''.join(reversed(header)) + msg)
 
+                else:
+                    InterceptConn.forward_data(self, self.proto_buffer[:4+rec_len])
                 del self.proto_buffer[:4+rec_len]
+
 
     return _InterceptKRB5Tcp
 
@@ -249,10 +251,10 @@ class InterceptServer(asyncore.dispatcher):
         try:
             upstream.create_socket(socket.AF_INET, socket.SOCK_STREAM)
             upstream.connect(self.target)
-            print ('accepted downconn fd: ' + str(downstream.fileno()))
-            print ('established upconn fd: ' + str(upstream.fileno()))
+            print(f'accepted downconn fd: {str(downstream.fileno())}')
+            print(f'established upconn fd: {str(upstream.fileno())}')
         except:
-            print (str(conn.fileno()) + ': failed to connect to target')
+            print(f'{str(conn.fileno())}: failed to connect to target')
             downstream.handle_close()
 
 

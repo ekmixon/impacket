@@ -59,7 +59,7 @@ class GetUserSPNs:
     def printTable(items, header):
         colLen = []
         for i, col in enumerate(header):
-            rowMaxLen = max([len(row[i]) for row in items])
+            rowMaxLen = max(len(row[i]) for row in items)
             colLen.append(max(rowMaxLen, len(col)))
 
         outputFormat = ' '.join(['{%d:%ds} ' % (num, width) for num, width in enumerate(colLen)])
@@ -92,9 +92,7 @@ class GetUserSPNs:
 
         # Create the baseDN
         domainParts = self.__targetDomain.split('.')
-        self.baseDN = ''
-        for i in domainParts:
-            self.baseDN += 'dc=%s,' % i
+        self.baseDN = ''.join(f'dc={i},' for i in domainParts)
         # Remove last ','
         self.baseDN = self.baseDN[:-1]
         # We can't set the KDC to a custom IP when requesting things cross-domain
@@ -121,7 +119,7 @@ class GetUserSPNs:
                 # We don't care about exceptions here as we already have the required
                 # information. This also works around the current SMB3 bug
                 pass
-        return "%s.%s" % (s.getServerName(), s.getServerDNSDomainName())
+        return f"{s.getServerName()}.{s.getServerDNSDomainName()}"
 
     @staticmethod
     def getUnixTime(t):
@@ -141,8 +139,8 @@ class GetUserSPNs:
                 domain = ccache.principal.realm['data']
             else:
                 domain = self.__domain
-            logging.debug("Using Kerberos Cache: %s" % os.getenv('KRB5CCNAME'))
-            principal = 'krbtgt/%s@%s' % (domain.upper(), domain.upper())
+            logging.debug(f"Using Kerberos Cache: {os.getenv('KRB5CCNAME')}")
+            principal = f'krbtgt/{domain.upper()}@{domain.upper()}'
             creds = ccache.getCredential(principal)
             if creds is not None:
                 TGT = creds.toTGT()
@@ -165,7 +163,7 @@ class GetUserSPNs:
                                                                 compute_nthash(self.__password), self.__aesKey,
                                                                 kdcHost=self.__kdcHost)
             except Exception as e:
-                logging.debug('TGT: %s' % str(e))
+                logging.debug(f'TGT: {str(e)}')
                 tgt, cipher, oldSessionKey, sessionKey = getKerberosTGT(userName, self.__password, self.__domain,
                                                                     unhexlify(self.__lmhash),
                                                                     unhexlify(self.__nthash), self.__aesKey,
@@ -243,11 +241,11 @@ class GetUserSPNs:
 
         if self.__saveTGS is True:
             # Save the ticket
-            logging.debug('About to save TGS for %s' % username)
+            logging.debug(f'About to save TGS for {username}')
             ccache = CCache()
             try:
                 ccache.fromTGS(tgs, oldSessionKey, sessionKey )
-                ccache.saveFile('%s.ccache' % username)
+                ccache.saveFile(f'{username}.ccache')
             except Exception as e:
                 logging.error(str(e))
 

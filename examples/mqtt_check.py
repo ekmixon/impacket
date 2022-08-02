@@ -42,11 +42,7 @@ class MQTT_LOGIN:
     def run(self):
         mqtt = MQTTConnection(self._target, int(self._options.port), self._options.ssl)
 
-        if self._options.client_id is None:
-            clientId = ' '
-        else:
-            clientId = self._options.client_id
-
+        clientId = ' ' if self._options.client_id is None else self._options.client_id
         mqtt.connect(clientId, self._username, self._password)
 
         logging.info(CONNECT_ACK_ERROR_MSGS[0])

@@ -40,7 +40,7 @@ if __name__ == '__main__':
     if len(sys.argv)==1:
         parser.print_help()
         sys.exit(1)
- 
+
     options = parser.parse_args()
 
     ms_sql = tds.MSSQL(options.host)
@@ -51,4 +51,4 @@ if __name__ == '__main__':
         for i, instance in enumerate(instances):
             logging.info("Instance %d" % i)
             for key in list(instance.keys()):
-               print(key + ":" + instance[key])
+                print(f"{key}:{instance[key]}")

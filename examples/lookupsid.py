@@ -55,10 +55,10 @@ class LSALookupSid:
 
     def dump(self, remoteName, remoteHost):
 
-        logging.info('Brute forcing SIDs at %s' % remoteName)
+        logging.info(f'Brute forcing SIDs at {remoteName}')
 
         stringbinding = self.KNOWN_PROTOCOLS[self.__port]['bindstr'] % remoteName
-        logging.info('StringBinding %s'%stringbinding)
+        logging.info(f'StringBinding {stringbinding}')
         rpctransport = transport.DCERPCTransportFactory(stringbinding)
         rpctransport.set_dport(self.__port)
 
@@ -80,7 +80,6 @@ class LSALookupSid:
 
     def __bruteForce(self, rpctransport, maxRid):
         dce = rpctransport.get_dce_rpc()
-        entries = []
         dce.connect()
 
         # Want encryption? Uncomment next line
@@ -91,7 +90,7 @@ class LSALookupSid:
         #dce.set_max_fragment_size(32)
 
         dce.bind(lsat.MSRPC_UUID_LSAT)
-        
+
         resp = lsad.hLsarOpenPolicy2(dce, MAXIMUM_ALLOWED | lsat.POLICY_LOOKUP_NAMES)
         policyHandle = resp['PolicyHandle']
 
@@ -102,29 +101,28 @@ class LSALookupSid:
             resp = lsad.hLsarQueryInformationPolicy2(dce, policyHandle, lsad.POLICY_INFORMATION_CLASS.PolicyAccountDomainInformation)
             domainSid = resp['PolicyInformation']['PolicyAccountDomainInfo']['DomainSid'].formatCanonical()
 
-        logging.info('Domain SID is: %s' % domainSid)
+        logging.info(f'Domain SID is: {domainSid}')
 
         soFar = 0
         SIMULTANEOUS = 1000
-        for j in range(maxRid//SIMULTANEOUS+1):
-            if (maxRid - soFar) // SIMULTANEOUS == 0:
-                sidsToCheck = (maxRid - soFar) % SIMULTANEOUS
-            else: 
-                sidsToCheck = SIMULTANEOUS
- 
+        for _ in range(maxRid//SIMULTANEOUS+1):
+            sidsToCheck = (
+                (maxRid - soFar) % SIMULTANEOUS
+                if (maxRid - soFar) // SIMULTANEOUS == 0
+                else SIMULTANEOUS
+            )
+
             if sidsToCheck == 0:
                 break
 
-            sids = list()
-            for i in range(soFar, soFar+sidsToCheck):
-                sids.append(domainSid + '-%d' % i)
+            sids = [domainSid + '-%d' % i for i in range(soFar, soFar+sidsToCheck)]
             try:
                 lsat.hLsarLookupSids(dce, policyHandle, sids,lsat.LSAP_LOOKUP_LEVEL.LsapLookupWksta)
             except DCERPCException as e:
-                if str(e).find('STATUS_NONE_MAPPED') >= 0:
+                if 'STATUS_NONE_MAPPED' in str(e):
                     soFar += SIMULTANEOUS
                     continue
-                elif str(e).find('STATUS_SOME_NOT_MAPPED') >= 0:
+                elif 'STATUS_SOME_NOT_MAPPED' in str(e):
                     resp = e.get_packet()
                 else: 
                     raise
@@ -138,7 +136,7 @@ class LSALookupSid:
 
         dce.disconnect()
 
-        return entries
+        return []
 
 
 # Process command-line arguments.
